@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#1a1a1f">
+  <WebView android:id="@+id/web" android:layout_width="match_parent" android:layout_height="match_parent"/>
+  <ImageView android:id="@+id/activate" android:layout_width="34dp" android:layout_height="34dp" android:layout_gravity="center_vertical|start" android:layout_marginStart="6dp" android:padding="8dp" android:src="@drawable/ic_syringe" android:background="@drawable/bg_pill" android:alpha="0.75" android:clickable="true" android:focusable="true" android:contentDescription="Lampirkan skill MD ke composer" app:tint="#d9b47a"/>
+  <ProgressBar android:id="@+id/progress" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="3dp" android:progressTint="#7dcf8f" android:visibility="gone"/>
+  <ImageView android:id="@+id/fab" android:layout_width="34dp" android:layout_height="34dp" android:layout_gravity="center_vertical|end" android:layout_marginEnd="6dp" android:padding="8dp" android:src="@drawable/ic_dash" android:background="@drawable/bg_pill" android:alpha="0.75" android:clickable="true" android:focusable="true" android:contentDescription="Dashboard" app:tint="#7dcf8f"/>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>
