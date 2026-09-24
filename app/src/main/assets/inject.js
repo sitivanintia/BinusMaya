@@ -10,6 +10,8 @@
   const isDola = u => { try { return /(^|\.)(dola\.com|doubao\.com)$/i.test(new URL(u, location.href).hostname); } catch { return false; } };
   const emit = v => {
     if (!isHttp(v.url)) return;
+    // Dola CDN tokens often decode to http://; the CDN serves https and the WebView blocks mixed content.
+    v.url = v.url.replace(/^http:\/\//i, 'https://');
     const key = v.vid || v.url;
     if (found.has(key)) return;
     v.name = v.name || ('dola_' + String(found.size + 1).padStart(2, '0') + (v.vid ? '_' + String(v.vid).slice(-6) : ''));

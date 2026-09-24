@@ -185,7 +185,8 @@ public class MainActivity extends AppCompatActivity {
      *  show Saving/Saved from the real DownloadManager status. Android 10+: public Downloads; 8-9:
      *  app-specific Downloads dir (no storage permission needed). */
     synchronized long enqueueDownload(String url, String contentDisposition, String mime, String userAgent) {
-        if (url == null || !url.startsWith("https://")) { Toast.makeText(this, "URL video tidak didukung", Toast.LENGTH_SHORT).show(); return -1; }
+        if (url != null) url = url.trim().replaceFirst("(?i)^http://", "https://");
+        if (url == null || !url.regionMatches(true, 0, "https://", 0, 8)) { Toast.makeText(this, "URL video tidak didukung: " + (url == null ? "kosong" : url.length() > 40 ? url.substring(0, 40) + "…" : url), Toast.LENGTH_LONG).show(); return -1; }
         try {
             String filename = URLUtil.guessFileName(url, contentDisposition, mime);
             DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
