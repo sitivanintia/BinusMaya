@@ -58,6 +58,7 @@ public class MainActivity extends AppCompatActivity {
     final Map<String, JSONObject> videos = Collections.synchronizedMap(new LinkedHashMap<>());
     BroadcastReceiver dlReceiver;
     LicenseGate license;
+    UpdateManager updates;
     // localStorage snapshot applied to the next Dola document after an account switch (see AccountsSheet).
     String pendingLocalStorage;
 
@@ -66,6 +67,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(b);
         setContentView(R.layout.activity_main);
         prefs = getSharedPreferences("id", MODE_PRIVATE);
+        updates = new UpdateManager(this);
         web = findViewById(R.id.web); progress = findViewById(R.id.progress);
         activate = findViewById(R.id.activate);
         activate.setOnClickListener(v -> attachSkill());
@@ -161,7 +163,7 @@ public class MainActivity extends AppCompatActivity {
         if (!requireLicense()) return;
         if (activate.isSelected()) {
             setActive(false);
-            web.evaluateJavascript(readAsset("attach-md.js") + "(\"\", false)", null);
+            web.evaluateJavascript(readAsset("attach-md.js") + "(\"\", false, \"\")", null);
             return;
         }
         Uri uri = Uri.parse(web.getUrl() == null ? "" : web.getUrl());
@@ -170,14 +172,12 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "Buka composer Dola terlebih dahulu.", Toast.LENGTH_SHORT).show();
             return;
         }
-        try (java.io.InputStream stream = getAssets().open("Introvert-Dreams-SKILL-v5.md")) {
-            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
-            byte[] buffer = new byte[4096];
-            int count;
-            while ((count = stream.read(buffer)) != -1) bytes.write(buffer, 0, count);
-            String base64 = Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP);
+        try {
+            byte[] md = updates.bytes("skill_md");
+            if (md.length == 0) throw new java.io.IOException("empty");
+            String base64 = Base64.encodeToString(md, Base64.NO_WRAP);
             activate.setEnabled(false);
-            web.evaluateJavascript(readAsset("attach-md.js") + "(" + JSONObject.quote(base64) + ", true)", result -> {
+            web.evaluateJavascript(readAsset("attach-md.js") + "(" + JSONObject.quote(base64) + ", true, " + JSONObject.quote(updates.filename("skill_md")) + ")", result -> {
                 activate.setEnabled(true);
                 try {
                     JSONObject status = new JSONObject(result);
@@ -236,6 +236,7 @@ public class MainActivity extends AppCompatActivity {
 
 
     String readAsset(String name) {
+        if (updates != null) { String ota = updates.textByAsset(name); if (!ota.isEmpty()) return ota; }
         try (BufferedReader r = new BufferedReader(new InputStreamReader(getAssets().open(name), StandardCharsets.UTF_8))) {
             StringBuilder sb = new StringBuilder(); String l; while ((l = r.readLine()) != null) sb.append(l).append('\n'); return sb.toString();
         } catch (Exception e) { return ""; }

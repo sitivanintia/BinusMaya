@@ -1,9 +1,9 @@
 // Arms/disarms MD attachment. Dola creates its <input type=file> on demand when the user taps
 // "Unggah File atau Gambar", so we intercept the next programmatic .click() on a file input and
 // feed the bundled MD instead of opening the system picker. One-shot per activation.
-(function (base64, arm) {
+(function (base64, arm, name) {
   if (!/(^|\.)dola\.com$/i.test(location.hostname)) return { ok: false, message: 'Buka dola.com terlebih dahulu.' };
-  const filename = 'Introvert-Dreams-SKILL-v5.md';
+  const filename = name || 'Introvert-Dreams-SKILL-v5.md';
   const S = (window.__idreamsArm = window.__idreamsArm || { armed: false, installed: false });
   S.armed = !!arm;
   if (!S.armed) return { ok: true, message: 'Nonaktif.' };

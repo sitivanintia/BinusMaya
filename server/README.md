@@ -34,3 +34,11 @@ Aplikasi hanya mempercayai respons HTTPS dari URL yang dikonfigurasi (Android 7+
 4. Install `dist/SesiAdmin-x.y.z.apk` → masukkan token → Masuk.
 
 Fitur: buat key (jumlah, max perangkat, masa berlaku, label), nonaktifkan/aktifkan, lepas perangkat, ubah nama/max/expiry, hapus, salin/kirim key via WA, monitoring (total, aktif, HP terdaftar, online 24 jam, mati) dengan filter & pencarian. Token bocor → jalankan `resetAdminToken()`.
+
+## Update sistem (MD / auto prompt / enforcer / collector lewat Google Drive)
+1. Tempel `Code.gs` terbaru, Run **`setupUpdates`** sekali → tab **Updates** dibuat berisi 4 baris: `skill_md`, `auto_prompt`, `enforcer`, `collector` dengan versi bawaan APK.
+2. Deploy versi baru (Manage deployments → ✏ → New version).
+3. Saat ada file baru: upload ke Google Drive → klik kanan → **Bagikan → Siapa saja yang memiliki link** → salin link → tempel ke kolom **Link Drive**, naikkan kolom **Versi** (mis. `v5` → `v6`, `7.3.9` → `7.4.0`), isi **Nama File** bila berubah (mis. `Introvert-Dreams-SKILL-v6.md`).
+4. Di APK, dashboard → **Update sistem → Cek & update**. Versi lebih tinggi dari yang terpasang diunduh dan langsung dipakai (MD dilampirkan dengan nama file baru; skrip aktif setelah halaman Dola dimuat ulang). Tekan lama baris komponen untuk kembali ke bawaan APK.
+
+Versi dibandingkan secara numerik (`v6` > `v5`, `2.10` > `2.9`). Kosongkan Link Drive = tidak ada update untuk komponen itu.

@@ -23,6 +23,7 @@ function handle(req) {
   const out = ContentService.createTextOutput().setMimeType(ContentService.MimeType.JSON);
   const action = String(req.action || '');
   if (!action) return out.setContent(JSON.stringify({ ok: true, service: 'sesi-license', time: Date.now() }));
+  if (action === 'updates') return out.setContent(JSON.stringify(updatesManifest()));
   if (action.startsWith('admin_')) return out.setContent(JSON.stringify(admin(action, req)));
   const key = normalizeKey(req.key), deviceId = String(req.deviceId || '').trim().toUpperCase(), nonce = String(req.nonce || '');
   if (!/^SESI-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/.test(key) || !/^[2-9A-HJ-NP-Z]{6}$/.test(deviceId)) {
@@ -100,6 +101,41 @@ function generateKeys(count, maxDevices, days, name) {
 }
 
 function randomBlock(n) { let s = ''; for (let i = 0; i < n; i++) s += ALPHA.charAt(Math.floor(Math.random() * ALPHA.length)); return s; }
+
+// ---------------------------------------------------------------------------------------------
+// Update system: sheet "Updates" → APK mengunduh file MD / auto-prompt / enforcer terbaru dari Google Drive.
+// Kolom: A Asset (skill_md | auto_prompt | enforcer | collector) | B Versi | C Link Drive | D Nama File | E Catatan
+// Link Drive: klik kanan file → Bagikan → "Siapa saja yang memiliki link" → salin link; tempel apa adanya.
+// ---------------------------------------------------------------------------------------------
+const UPDATES_SHEET = 'Updates';
+function setupUpdates() {
+  const ss = SpreadsheetApp.getActive();
+  let sheet = ss.getSheetByName(UPDATES_SHEET);
+  if (!sheet) sheet = ss.insertSheet(UPDATES_SHEET);
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(['Asset', 'Versi', 'Link Drive', 'Nama File', 'Catatan']);
+    sheet.appendRow(['skill_md', 'v5', '', 'Introvert-Dreams-SKILL-v5.md', 'File MD yang dilampirkan ke composer. Naikkan versi (v6) + ganti link saat ada pembaruan.']);
+    sheet.appendRow(['auto_prompt', '7.3.9', '', 'auto-prompt.js', 'Skrip auto prompt (directive Seedance 2.5 / 30s).']);
+    sheet.appendRow(['enforcer', '2.2', '', 'single-clip-enforcer.js', 'Paksa 1 video × 30 detik.']);
+    sheet.appendRow(['collector', '1.5', '', 'inject.js', 'Pendeteksi video (fallback_api).']);
+    sheet.setFrozenRows(1); sheet.getRange('B:B').setNumberFormat('@');
+  }
+}
+function driveDirectUrl(link) {
+  const s = String(link || '').trim(); if (!s) return '';
+  const m = s.match(/\/file\/d\/([\w-]+)/) || s.match(/[?&]id=([\w-]+)/) || s.match(/^([\w-]{20,})$/);
+  return m ? 'https://drive.google.com/uc?export=download&id=' + m[1] : s;
+}
+function updatesManifest() {
+  const sheet = SpreadsheetApp.getActive().getSheetByName(UPDATES_SHEET);
+  if (!sheet) return { ok: true, assets: [], note: 'run setupUpdates()' };
+  const rows = sheet.getDataRange().getValues(), assets = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i]; if (!r[0]) continue;
+    assets.push({ id: String(r[0]).trim(), version: String(r[1] || '').trim(), url: driveDirectUrl(r[2]), filename: String(r[3] || '').trim(), note: String(r[4] || '') });
+  }
+  return { ok: true, assets, serverTime: Date.now() };
+}
 
 // ---------------------------------------------------------------------------------------------
 // Admin API (dipakai APK SESI Admin). Token disimpan di Script Properties, bukan di kode.

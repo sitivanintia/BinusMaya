@@ -119,6 +119,38 @@ public class DashboardSheet {
         Button lbtn = btn(a, lic ? "Verifikasi ulang" : "Aktivasi", !lic); lbtn.setOnClickListener(v -> { d.dismiss(); if (lic) a.license.request("verify", a.license.savedKey(), (ok, m) -> { android.widget.Toast.makeText(a, m.startsWith("!") ? m.substring(1) : (ok ? "Lisensi valid ✓" : m), android.widget.Toast.LENGTH_SHORT).show(); if (!ok && m.startsWith("!")) { a.license.clear(); a.onLicenseLost(m.substring(1)); } }); else a.requireLicense(); });
         lrow.addView(lbtn, weight()); lc.addView(lrow);
 
+        // Update system: versions come from the "Updates" sheet, files from Google Drive.
+        root.addView(groupTitle(a, "Update sistem"));
+        LinearLayout uc = card(a); root.addView(uc);
+        java.util.Map<String, TextView> verViews = new java.util.HashMap<>();
+        for (String id : UpdateManager.ASSETS.keySet()) {
+            LinearLayout r = row(a); r.setPadding(dp(sv, 12), dp(sv, 10), dp(sv, 12), dp(sv, 4));
+            r.addView(tv(a, a.updates.label(id), 14, TEXT, true), weight());
+            TextView ver = tv(a, a.updates.version(id) + (a.updates.hasUpdate(id) ? " · OTA" : ""), 13, TEXT2, false); verViews.put(id, ver); r.addView(ver);
+            r.setOnLongClickListener(x -> { if (!a.updates.hasUpdate(id)) return false; a.updates.reset(id); ver.setText(a.updates.version(id)); android.widget.Toast.makeText(a, a.updates.label(id) + " dikembalikan ke bawaan APK", android.widget.Toast.LENGTH_SHORT).show(); return true; });
+            uc.addView(r);
+        }
+        TextView uhint = tv(a, "", 11, TEXT2, false); uhint.setPadding(dp(sv, 12), dp(sv, 4), dp(sv, 12), 0); uc.addView(uhint);
+        LinearLayout urow = row(a); urow.setPadding(dp(sv, 12), dp(sv, 8), dp(sv, 12), dp(sv, 12));
+        Button ubtn = btn(a, "Cek & update", true);
+        ubtn.setOnClickListener(v -> {
+            if (!a.requireLicense()) return;
+            ubtn.setEnabled(false); uhint.setText("Memeriksa versi terbaru…");
+            a.updates.check(true, res -> {
+                ubtn.setEnabled(true); int updated = 0; String err = null;
+                for (java.util.Map.Entry<String, String> e : res.entrySet()) {
+                    String st = e.getValue(); TextView ver = verViews.get(e.getKey());
+                    if (st.startsWith("updated:")) { updated++; ver.setText(st.substring(8) + " · OTA"); ver.setTextColor(GREEN); }
+                    else if (st.startsWith("error:")) { err = a.updates.label(e.getKey()) + ": " + st.substring(6); ver.setTextColor(ORANGE); }
+                    else ver.setText(a.updates.version(e.getKey()) + (a.updates.hasUpdate(e.getKey()) ? " · OTA" : ""));
+                }
+                uhint.setTextColor(err != null ? ORANGE : TEXT2);
+                uhint.setText(err != null ? err : updated == 0 ? "Semua sudah versi terbaru ✓" : updated + " komponen diperbarui. Muat ulang halaman Dola agar skrip baru aktif.");
+                if (updated > 0) a.web.reload();
+            });
+        });
+        urow.addView(ubtn, weight()); uc.addView(urow);
+
         root.addView(groupTitle(a, "Info"));
         LinearLayout g = card(a); root.addView(g);
         g.addView(info(a, "Sumber", "Tanpa watermark · kualitas tertinggi"));
