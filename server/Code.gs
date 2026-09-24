@@ -110,7 +110,7 @@ function randomBlock(n) { let s = ''; for (let i = 0; i < n; i++) s += ALPHA.cha
 // Server membaca folder sebagai pemilik, jadi file tidak perlu di-share publik.
 // Isi UPDATES_FOLDER dengan link/ID folder, atau Run setUpdatesFolder() setelah menempel link di dalamnya.
 // ---------------------------------------------------------------------------------------------
-const UPDATES_FOLDER = '';
+const UPDATES_FOLDER = 'https://drive.google.com/drive/folders/1Ykim3c6gKPAf1SqOHRqCr239jYr1N0JT';
 function setUpdatesFolder() { const link = 'TEMPEL_LINK_FOLDER_DI_SINI'; PropertiesService.getScriptProperties().setProperty('UPDATES_FOLDER', link); Logger.log('Folder update disimpan: ' + folderId()); }
 function folderId() {
   const raw = PropertiesService.getScriptProperties().getProperty('UPDATES_FOLDER') || UPDATES_FOLDER;
