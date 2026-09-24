@@ -3,17 +3,14 @@ package com.introvertdreams.app;
 import android.annotation.SuppressLint;
 import android.app.DownloadManager;
 import android.content.BroadcastReceiver;
-import android.content.ContentValues;
 import android.content.Context;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.provider.MediaStore;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
@@ -27,12 +24,11 @@ import android.webkit.ValueCallback;
 import android.webkit.PermissionRequest;
 import android.content.Intent;
 import android.util.Base64;
+import android.webkit.URLUtil;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
@@ -42,16 +38,12 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Locale;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -62,13 +54,10 @@ public class MainActivity extends AppCompatActivity {
     ImageView activate;
     ValueCallback<Uri[]> filePathCallback;
     static final int REQ_FILE = 1001;
-    static final int REQ_STORAGE = 1002;
-    static final String DL_DIR = "IntrovertDreams";
     final Map<String, JSONObject> videos = Collections.synchronizedMap(new LinkedHashMap<>());
-    // DownloadManager id -> {url, filename}; lets the completion receiver report failures and retry in-app.
-    final Map<Long, String[]> pending = Collections.synchronizedMap(new HashMap<>());
-    String[] awaitingPermission;
     BroadcastReceiver dlReceiver;
+    // localStorage snapshot applied to the next Dola document after an account switch (see AccountsSheet).
+    String pendingLocalStorage;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override protected void onCreate(Bundle b) {
@@ -105,6 +94,11 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onPageStarted(WebView v, String url, android.graphics.Bitmap f) {
                 progress.setVisibility(View.VISIBLE);
                 setActive(false);
+                if (pendingLocalStorage != null && isSite(url)) {
+                    String js = "(()=>{try{const d=" + pendingLocalStorage + ";localStorage.clear();for(const k in d)localStorage.setItem(k,d[k]);}catch(e){}})()";
+                    pendingLocalStorage = null;
+                    v.evaluateJavascript(js, null);
+                }
             }
             @Override public void onPageFinished(WebView v, String url) { progress.setVisibility(View.GONE); }
         });
@@ -187,49 +181,75 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) { return ""; }
     }
 
-    void download(String url, String name) {
-        if (url == null || url.isEmpty()) { Toast.makeText(this, "URL video kosong.", Toast.LENGTH_SHORT).show(); return; }
-        String safe = (name == null || name.isEmpty() ? "dola_video" : name).replaceAll("[<>:\"/\\\\|?*\\x00-\\x1F]", "").trim();
-        if (!safe.endsWith(".mp4")) safe += ".mp4";
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
-                && ContextCompat.checkSelfPermission(this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-            awaitingPermission = new String[]{ url, safe };
-            ActivityCompat.requestPermissions(this, new String[]{ android.Manifest.permission.WRITE_EXTERNAL_STORAGE }, REQ_STORAGE);
-            return;
-        }
+    /** SESI MAX MODE download path: Android DownloadManager, tracked in prefs so the dashboard can
+     *  show Saving/Saved from the real DownloadManager status. Android 10+: public Downloads; 8-9:
+     *  app-specific Downloads dir (no storage permission needed). */
+    synchronized long enqueueDownload(String url, String contentDisposition, String mime, String userAgent) {
+        if (url == null || !url.startsWith("https://")) { Toast.makeText(this, "URL video tidak didukung", Toast.LENGTH_SHORT).show(); return -1; }
         try {
+            String filename = URLUtil.guessFileName(url, contentDisposition, mime);
             DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
+            req.setTitle(filename);
+            req.setDescription("SESI MINI");
+            if (mime != null) req.setMimeType(mime);
             String cookies = CookieManager.getInstance().getCookie(url);
             if (cookies != null) req.addRequestHeader("Cookie", cookies);
-            req.addRequestHeader("Referer", HOME);
-            req.addRequestHeader("User-Agent", web.getSettings().getUserAgentString());
-            req.setTitle(safe).setMimeType("video/mp4")
-               .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-               .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, DL_DIR + "/" + safe);
-            long id = ((DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE)).enqueue(req);
-            pending.put(id, new String[]{ url, safe });
-            Toast.makeText(this, "Mengunduh: " + safe, Toast.LENGTH_SHORT).show();
+            String ua = userAgent != null && !userAgent.isEmpty() ? userAgent : web.getSettings().getUserAgentString();
+            req.addRequestHeader("User-Agent", ua);
+            String cur = web.getUrl();
+            if (isSite(cur)) req.addRequestHeader("Referer", cur);
+            req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename);
+            else req.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, filename);
+            long id = ((DownloadManager) getSystemService(DOWNLOAD_SERVICE)).enqueue(req);
+            JSONObject tracked = new JSONObject(prefs.getString("downloads", "{}"));
+            JSONObject row = new JSONObject(); row.put("url", url); row.put("filename", filename);
+            tracked.put(String.valueOf(id), row);
+            prefs.edit().putString("downloads", tracked.toString()).apply();
+            Toast.makeText(this, "Download dimulai", Toast.LENGTH_SHORT).show();
+            return id;
         } catch (Exception e) {
-            // DownloadManager unavailable/disabled or destination not creatable: stream the file ourselves.
-            downloadDirect(url, safe);
+            Toast.makeText(this, "Download gagal dibuka", Toast.LENGTH_SHORT).show();
+            return -1;
         }
     }
 
-    @Override public void onRequestPermissionsResult(int req, @NonNull String[] perms, @NonNull int[] res) {
-        super.onRequestPermissionsResult(req, perms, res);
-        if (req != REQ_STORAGE) return;
-        String[] p = awaitingPermission; awaitingPermission = null;
-        if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) { if (p != null) download(p[0], p[1]); }
-        else Toast.makeText(this, "Izin penyimpanan ditolak, video tidak bisa disimpan ke HP.", Toast.LENGTH_LONG).show();
+    void download(String url, String name) {
+        String safe = (name == null || name.isEmpty() ? "dola_video" : name).replaceAll("[<>:\"/\\\\|?*\\x00-\\x1F]", "").trim();
+        if (!safe.endsWith(".mp4")) safe += ".mp4";
+        enqueueDownload(url, "attachment; filename=\"" + safe + "\"", "video/mp4", null);
+    }
+
+    /** Per-video download state derived from DownloadManager: "", "in_progress", "complete", "interrupted". */
+    synchronized Map<String, String> downloadStates() {
+        Map<String, String> out = new HashMap<>();
+        try {
+            JSONObject tracked = new JSONObject(prefs.getString("downloads", "{}"));
+            DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+            Iterator<String> ids = tracked.keys();
+            while (ids.hasNext()) {
+                String id = ids.next();
+                try (Cursor c = dm.query(new DownloadManager.Query().setFilterById(Long.parseLong(id)))) {
+                    if (c == null || !c.moveToFirst()) continue;
+                    int status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
+                    String url = tracked.getJSONObject(id).optString("url");
+                    String state = status == DownloadManager.STATUS_SUCCESSFUL ? "complete" : status == DownloadManager.STATUS_FAILED ? "interrupted" : "in_progress";
+                    // Newest attempt wins, but never downgrade a completed file.
+                    if (!"complete".equals(out.get(url))) out.put(url, state);
+                } catch (Exception ignored) {}
+            }
+        } catch (Exception ignored) {}
+        return out;
     }
 
     void registerDownloadReceiver() {
         dlReceiver = new BroadcastReceiver() {
             @Override public void onReceive(Context c, Intent i) {
                 long id = i.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-                String[] p = pending.remove(id);
-                if (p == null) return;
-                DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                String url = null, filename = null;
+                try { JSONObject row = new JSONObject(prefs.getString("downloads", "{}")).optJSONObject(String.valueOf(id)); if (row != null) { url = row.optString("url"); filename = row.optString("filename"); } } catch (Exception ignored) {}
+                if (url == null) return;
+                DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
                 int status = -1, reason = -1;
                 try (Cursor cur = dm.query(new DownloadManager.Query().setFilterById(id))) {
                     if (cur != null && cur.moveToFirst()) {
@@ -237,8 +257,8 @@ public class MainActivity extends AppCompatActivity {
                         reason = cur.getInt(cur.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON));
                     }
                 } catch (Exception ignored) {}
-                if (status == DownloadManager.STATUS_SUCCESSFUL) { markSaved(p[0]); Toast.makeText(MainActivity.this, "Tersimpan: Download/" + DL_DIR + "/" + p[1], Toast.LENGTH_SHORT).show(); }
-                else { Toast.makeText(MainActivity.this, "Download gagal (" + reasonText(reason) + "), coba unduh langsung…", Toast.LENGTH_LONG).show(); downloadDirect(p[0], p[1]); }
+                if (status == DownloadManager.STATUS_SUCCESSFUL) Toast.makeText(MainActivity.this, "Tersimpan: " + filename, Toast.LENGTH_SHORT).show();
+                else if (status == DownloadManager.STATUS_FAILED) Toast.makeText(MainActivity.this, "Download gagal: " + reasonText(reason), Toast.LENGTH_LONG).show();
             }
         };
         IntentFilter f = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
@@ -261,59 +281,23 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    void markSaved(String url) { JSONObject v = videos.get(url); if (v != null) try { v.put("saved", true); } catch (Exception ignored) {} }
-
-    /** In-app downloader used when DownloadManager is unavailable or fails (e.g. CDN rejects its request). */
-    void downloadDirect(String url, String safe) {
-        String cookies = CookieManager.getInstance().getCookie(url);
-        String ua = web.getSettings().getUserAgentString();
-        new Thread(() -> {
-            String err = null;
-            try {
-                HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-                c.setInstanceFollowRedirects(true);
-                c.setConnectTimeout(20000); c.setReadTimeout(60000);
-                c.setRequestProperty("User-Agent", ua);
-                c.setRequestProperty("Referer", HOME);
-                if (cookies != null) c.setRequestProperty("Cookie", cookies);
-                int code = c.getResponseCode();
-                if (code < 200 || code >= 300) throw new java.io.IOException("HTTP " + code);
-                try (InputStream in = c.getInputStream()) { saveToDownloads(in, safe); }
-            } catch (Exception e) { err = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(); }
-            String msg = err == null ? "Tersimpan: Download/" + DL_DIR + "/" + safe : "Gagal mengunduh: " + err;
-            if (err == null) markSaved(url);
-            runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show());
-        }, "id-download").start();
+    static boolean isSite(String url) {
+        try {
+            Uri uri = Uri.parse(url == null ? "" : url);
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.US);
+            return "https".equals(uri.getScheme()) && (host.equals("dola.com") || host.endsWith(".dola.com"));
+        } catch (Exception e) { return false; }
     }
 
-    void saveToDownloads(InputStream in, String safe) throws Exception {
-        byte[] buf = new byte[64 * 1024]; int n;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ContentValues cv = new ContentValues();
-            cv.put(MediaStore.Downloads.DISPLAY_NAME, safe);
-            cv.put(MediaStore.Downloads.MIME_TYPE, "video/mp4");
-            cv.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/" + DL_DIR);
-            cv.put(MediaStore.Downloads.IS_PENDING, 1);
-            Uri item = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
-            if (item == null) throw new java.io.IOException("MediaStore menolak file");
-            try (OutputStream out = getContentResolver().openOutputStream(item)) {
-                if (out == null) throw new java.io.IOException("Tidak bisa membuka file tujuan");
-                while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
-            } catch (Exception e) { getContentResolver().delete(item, null, null); throw e; }
-            cv.clear(); cv.put(MediaStore.Downloads.IS_PENDING, 0);
-            getContentResolver().update(item, cv, null, null);
-        } else {
-            File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), DL_DIR);
-            if (!dir.exists() && !dir.mkdirs()) throw new java.io.IOException("Tidak bisa membuat folder " + dir);
-            try (OutputStream out = new FileOutputStream(new File(dir, safe))) { while ((n = in.read(buf)) != -1) out.write(buf, 0, n); }
-        }
-    }
-
-    void scan(Runnable done) {
-        web.evaluateJavascript("(function(){try{window.__idreamsScanDom&&window.__idreamsScanDom();return JSON.stringify(window.__idreamsVideos?window.__idreamsVideos():[])}catch(e){return '[]'}})()", r -> {
+    void scan(Runnable done) { scan(done, 0); }
+    void scan(Runnable done, int attempt) {
+        web.evaluateJavascript("(function(){try{window.__idreamsScanDom&&window.__idreamsScanDom();return JSON.stringify({p:window.__idreamsPending?window.__idreamsPending():0,v:window.__idreamsVideos?window.__idreamsVideos():[]})}catch(e){return '{\"p\":0,\"v\":[]}'}})()", r -> {
+            int pendingN = 0;
+            try { Object v = new org.json.JSONTokener(r == null ? "null" : r).nextValue(); if (v instanceof String) { JSONObject o = new JSONObject((String) v); pendingN = o.optInt("p"); r = o.optJSONArray("v") == null ? "[]" : o.optJSONArray("v").toString(); } else if (v instanceof JSONObject) { pendingN = ((JSONObject) v).optInt("p"); r = ((JSONObject) v).optJSONArray("v") == null ? "[]" : ((JSONObject) v).optJSONArray("v").toString(); } } catch (Exception ignored) {}
+            // fallback_api resolution is async in the page; wait briefly so freshly found videos are included.
+            if (pendingN > 0 && attempt < 10) { web.postDelayed(() -> scan(done, attempt + 1), 500); return; }
             try {
-                String json = r == null ? "[]" : new JSONObject("{\"v\":" + r + "}").getString("v");
-                JSONArray arr = new JSONArray(json);
+                JSONArray arr = new JSONArray(r);
                 for (int i = 0; i < arr.length(); i++) { JSONObject v = arr.getJSONObject(i); if (!videos.containsKey(v.getString("url"))) videos.put(v.getString("url"), v); }
             } catch (Exception ignored) {}
             if (done != null) done.run();

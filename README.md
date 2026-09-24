@@ -16,10 +16,10 @@ APK yang memuat dola.com di WebView dengan dashboard unduhan. Request Dola tidak
 - `assets/inject.js` — pengamat *read-only* respons API Dola: mengumpulkan URL video kualitas sumber (`fallback_api` / `video_list`, piksel & bitrate tertinggi). Tidak mengubah request.
 - Tombol bulat kanan bawah → dashboard: status, Found/Saved, **Scan chat** (manual), daftar video + **Download** per item ke `Download/IntrovertDreams/`.
 
-## Download (v1.4.1)
-- Android 9 ke bawah: aplikasi meminta izin penyimpanan (`WRITE_EXTERNAL_STORAGE`) sebelum mengunduh; tanpa izin ini DownloadManager selalu gagal.
-- Hasil DownloadManager dipantau: sukses → toast lokasi file; gagal → toast alasan (HTTP 403/404, penyimpanan penuh, dll.) lalu otomatis dicoba ulang lewat downloader internal (HttpURLConnection → MediaStore `Download/IntrovertDreams`).
-- Status **Saved** hanya ditandai setelah file benar-benar tersimpan.
+## Deteksi & Download (v1.5.0 — sistem SESI MAX MODE)
+- `assets/inject.js` memakai pipeline extractor SESI MAX MODE: `fallback_api` disadap dari respons API Dola (fetch/XHR, termasuk JSON bersarang dalam string), lalu diambil ulang dengan `channel=no&codec_type=8&logo_type=unwatermarked`, entri kualitas tertinggi dipilih, dan token `main_url` didekode (URL langsung / base64 / `qAAB` AES-CBC dengan `key_seed`). Versi lama menganggap `fallback_api` sebagai URL video sehingga tidak ada video valid yang terdeteksi/terunduh.
+- Unduhan lewat Android DownloadManager persis seperti SESI: Android 10+ ke folder `Download/`, Android 8–9 ke folder Download khusus aplikasi (tanpa izin penyimpanan). Status **Saving/Saved/Gagal** di dashboard mengikuti status DownloadManager yang dilacak di SharedPreferences (`downloads`), bukan ditandai saat enqueue.
+- **Akun** (tombol di dashboard): simpan sesi login Dola per akun (cookies via `CookieManager` + snapshot `localStorage`), ganti akun tanpa login ulang, “Akun baru” untuk logout bersih. Data tersimpan lokal.
 
 ## Build
 ```

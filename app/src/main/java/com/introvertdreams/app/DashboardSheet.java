@@ -15,6 +15,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Map;
 
 /** SESI-style dashboard: status, counters, manual scan, per-video download, switches. */
 public class DashboardSheet {
@@ -42,17 +43,24 @@ public class DashboardSheet {
         LinearLayout.LayoutParams w1 = weight(), w2 = weight(); w1.rightMargin = dp(sv, 4); w2.leftMargin = dp(sv, 4); counts.addView(found, w1); counts.addView(saved, w2); root.addView(counts);
 
         // actions
-        Button scan = btn(a, "Scan chat", true); root.addView(scan, mt(sv, 12));
+        LinearLayout actions = row(a);
+        Button scan = btn(a, "Scan chat", true); LinearLayout.LayoutParams s1 = weight(); s1.rightMargin = dp(sv, 4); actions.addView(scan, s1);
+        Button acct = btn(a, "Akun", false); LinearLayout.LayoutParams s2 = weight(); s2.leftMargin = dp(sv, 4); actions.addView(acct, s2);
+        root.addView(actions, mt(sv, 12));
+        acct.setOnClickListener(v -> { d.dismiss(); AccountsSheet.show(a); });
         TextView hint = tv(a, "", 12, TEXT2, false); root.addView(hint);
 
         // video list
         root.addView(groupTitle(a, "Video siap download"));
         LinearLayout list = card(a); root.addView(list);
 
-        Runnable render = () -> {
+        Runnable[] render = new Runnable[1];
+        render[0] = () -> {
             list.removeAllViews();
             ArrayList<JSONObject> vs = new ArrayList<>(a.videos.values());
-            int savedN = 0; for (JSONObject v : vs) if (v.optBoolean("saved")) savedN++;
+            Map<String, String> states = a.downloadStates();
+            int savedN = 0; boolean busy = false;
+            for (JSONObject v : vs) { String st = states.get(v.optString("url")); if ("complete".equals(st)) savedN++; if ("in_progress".equals(st)) busy = true; }
             ((TextView) found.getTag()).setText(String.valueOf(vs.size())); ((TextView) saved.getTag()).setText(String.valueOf(savedN));
             if (vs.isEmpty()) { TextView e = tv(a, "Belum ada video. Buka chat yang berisi video lalu ketuk Scan chat.", 13, TEXT2, false); e.setPadding(dp(sv, 12), dp(sv, 14), dp(sv, 12), dp(sv, 14)); list.addView(e); return; }
             int i = 0;
@@ -61,20 +69,25 @@ public class DashboardSheet {
                 LinearLayout meta = new LinearLayout(a); meta.setOrientation(LinearLayout.VERTICAL);
                 String name = v.optString("name", "video_" + (++i));
                 String dim = v.optInt("width") > 0 ? v.optInt("width") + "×" + v.optInt("height") : v.optString("definition", "mp4");
-                meta.addView(tv(a, name, 13, TEXT, true)); meta.addView(tv(a, v.optBoolean("saved") ? "Tersimpan" : dim, 11, TEXT2, false));
+                String st = states.get(v.optString("url"));
+                String status = "complete".equals(st) ? "Saved · " + dim : "in_progress".equals(st) ? "Saving…" : "interrupted".equals(st) ? "Gagal · ketuk untuk ulangi" : dim;
+                meta.addView(tv(a, name, 13, TEXT, true)); meta.addView(tv(a, status, 11, "complete".equals(st) ? GREEN : "interrupted".equals(st) ? ORANGE : TEXT2, false));
                 r.addView(meta, weight());
-                Button dl = btn(a, v.optBoolean("saved") ? "✓ Ulangi" : "⬇ Download", false);
-                dl.setOnClickListener(x -> a.download(v.optString("url"), name)); r.addView(dl);
+                Button dl = btn(a, "complete".equals(st) ? "✓ Ulangi" : "in_progress".equals(st) ? "…" : "⬇ Download", false);
+                dl.setEnabled(!"in_progress".equals(st));
+                dl.setOnClickListener(x -> { a.download(v.optString("url"), name); render[0].run(); }); r.addView(dl);
                 list.addView(r);
             }
+            // Poll DownloadManager while something is saving so Saving → Saved updates live.
+            if (busy) list.postDelayed(() -> { if (d.isShowing()) render[0].run(); }, 1500);
         };
-        render.run();
-        scan.setOnClickListener(v -> { hint.setText("Memindai chat…"); a.scan(() -> { render.run(); hint.setText(a.videos.isEmpty() ? "Tidak ada video di halaman ini." : a.videos.size() + " video ditemukan"); }); });
+        render[0].run();
+        scan.setOnClickListener(v -> { hint.setText("Memindai chat…"); a.scan(() -> { render[0].run(); hint.setText(a.videos.isEmpty() ? "Tidak ada video di halaman ini." : a.videos.size() + " video ditemukan"); }); });
 
         root.addView(groupTitle(a, "Info"));
         LinearLayout g = card(a); root.addView(g);
-        g.addView(info(a, "Sumber", "Kualitas tertinggi yang tersedia"));
-        g.addView(info(a, "Folder", "Download/IntrovertDreams"));
+        g.addView(info(a, "Sumber", "Tanpa watermark · kualitas tertinggi"));
+        g.addView(info(a, "Folder", android.os.Build.VERSION.SDK_INT >= 29 ? "Download" : "Android/data/…/files/Download"));
         // credits
         root.addView(groupTitle(a, "Developer"));
         LinearLayout cred = card(a); root.addView(cred);
