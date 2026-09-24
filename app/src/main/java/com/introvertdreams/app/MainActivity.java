@@ -84,13 +84,9 @@ public class MainActivity extends AppCompatActivity {
         installDocumentStartScript();
 
         web.setWebViewClient(new WebViewClient() {
-            @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
-                Uri u = r.getUrl(); String h = u.getHost() == null ? "" : u.getHost();
-                // Keep Dola + its auth/CDN hosts inside; everything else in the system browser.
-                if (h.endsWith("dola.com") || h.contains("bytedance") || h.contains("byteintl") || h.contains("bytedtos") || h.contains("byteoversea") || h.contains("google") || h.contains("facebook") || h.contains("apple.com")) return false;
-                try { startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, u)); } catch (Exception ignored) {}
-                return true;
-            }
+            @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) { return handleNavigation(r.getUrl()); }
+            @SuppressWarnings("deprecation")
+            @Override public boolean shouldOverrideUrlLoading(WebView v, String url) { return handleNavigation(Uri.parse(url)); }
             @Override public void onPageStarted(WebView v, String url, android.graphics.Bitmap f) {
                 progress.setVisibility(View.VISIBLE);
                 setActive(false);
@@ -282,6 +278,92 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /** SESI navigation policy: every http(s) page (Google/Apple/Facebook sign-in, redirects, CDN) stays in this
+     *  WebView so the login round-trip returns to Dola; only WhatsApp/intent/mailto/tel leave the app. */
+    boolean handleNavigation(Uri uri) {
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.US);
+        if ("http".equals(scheme) || "https".equals(scheme)) {
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.US);
+            if (host.equals("wa.me") || host.endsWith("whatsapp.com")) { try { startActivity(new Intent(Intent.ACTION_VIEW, uri)); } catch (Exception ignored) {} return true; }
+            return false;
+        }
+        if ("intent".equals(scheme)) { try { startActivity(Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME)); } catch (Exception ignored) {} return true; }
+        if ("mailto".equals(scheme) || "tel".equals(scheme)) { try { startActivity(new Intent(Intent.ACTION_VIEW, uri)); } catch (Exception ignored) {} return true; }
+        return true;
+    }
+
+    Map<String, String> mediaHeaders(String url) {
+        Map<String, String> h = new HashMap<>();
+        String c = CookieManager.getInstance().getCookie(url); if (c != null && !c.isEmpty()) h.put("Cookie", c);
+        h.put("User-Agent", web.getSettings().getUserAgentString());
+        String cur = web.getUrl(); h.put("Referer", isSite(cur) ? cur : HOME);
+        return h;
+    }
+
+    final java.util.concurrent.ExecutorService thumbExecutor = java.util.concurrent.Executors.newFixedThreadPool(2);
+    final android.util.LruCache<String, android.graphics.Bitmap> thumbCache = new android.util.LruCache<String, android.graphics.Bitmap>(60) {
+        @Override protected int sizeOf(String k, android.graphics.Bitmap b) { return 1; }
+    };
+    /** Native thumbnail like SESI: MediaMetadataRetriever over HTTPS with the Dola cookies/UA; poster image if the API gave one. */
+    void requestThumb(String url, String poster, ValueCallback<android.graphics.Bitmap> done) {
+        android.graphics.Bitmap cached = thumbCache.get(url);
+        if (cached != null) { done.onReceiveValue(cached); return; }
+        thumbExecutor.execute(() -> {
+            android.graphics.Bitmap bmp = null;
+            if (poster != null && poster.startsWith("http")) {
+                try { java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(poster.replaceFirst("(?i)^http://", "https://")).openConnection(); c.setConnectTimeout(8000); c.setReadTimeout(8000); for (Map.Entry<String, String> e : mediaHeaders(poster).entrySet()) c.setRequestProperty(e.getKey(), e.getValue()); try (java.io.InputStream in = c.getInputStream()) { bmp = android.graphics.BitmapFactory.decodeStream(in); } } catch (Exception ignored) {}
+            }
+            if (bmp == null) {
+                android.media.MediaMetadataRetriever mmr = new android.media.MediaMetadataRetriever();
+                try {
+                    mmr.setDataSource(url, mediaHeaders(url));
+                    long durUs = 0; try { durUs = Long.parseLong(mmr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)) * 1000L; } catch (Exception ignored) {}
+                    long at = durUs > 0 ? Math.min(600000L, durUs / 3) : 0;
+                    bmp = mmr.getFrameAtTime(at, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+                    if (bmp == null) bmp = mmr.getFrameAtTime();
+                } catch (Exception ignored) {} finally { try { mmr.release(); } catch (Exception ignored) {} }
+            }
+            if (bmp != null) {
+                int w = Math.min(320, bmp.getWidth()), h = Math.max(1, Math.round(w * (float) bmp.getHeight() / Math.max(1, bmp.getWidth())));
+                android.graphics.Bitmap small = android.graphics.Bitmap.createScaledBitmap(bmp, w, h, true);
+                if (small != bmp) bmp.recycle();
+                bmp = small; thumbCache.put(url, bmp);
+            }
+            final android.graphics.Bitmap out = bmp;
+            runOnUiThread(() -> done.onReceiveValue(out));
+        });
+    }
+
+    android.app.Dialog playerDialog;
+    /** Pop-up player (SESI): plays the CDN URL with the site's cookies, Download button at the bottom. */
+    void showPlayer(String url, String title) {
+        if (playerDialog != null) { try { playerDialog.dismiss(); } catch (Exception ignored) {} }
+        android.app.Dialog d = new android.app.Dialog(this, android.R.style.Theme_Material_NoActionBar); playerDialog = d;
+        android.widget.FrameLayout root = new android.widget.FrameLayout(this); root.setBackgroundColor(0xEE000000); root.setFitsSystemWindows(true);
+        android.widget.VideoView video = new android.widget.VideoView(this);
+        root.addView(video, new android.widget.FrameLayout.LayoutParams(-1, -2, android.view.Gravity.CENTER));
+        ProgressBar spinner = new ProgressBar(this);
+        int dp40 = (int) (40 * getResources().getDisplayMetrics().density);
+        root.addView(spinner, new android.widget.FrameLayout.LayoutParams(dp40, dp40, android.view.Gravity.CENTER));
+        android.widget.LinearLayout top = DashboardSheet.row(this); int p = DashboardSheet.dp(root, 12); top.setPadding(p + 4, p, p, p);
+        android.widget.TextView t = DashboardSheet.tv(this, title == null || title.isEmpty() ? "Pratinjau" : title, 15, 0xFFFFFFFF, true); t.setSingleLine(); t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        top.addView(t, DashboardSheet.weight());
+        android.widget.Button close = DashboardSheet.btn(this, "✕", false); close.setOnClickListener(v -> d.dismiss()); top.addView(close);
+        root.addView(top, new android.widget.FrameLayout.LayoutParams(-1, -2, android.view.Gravity.TOP));
+        android.widget.LinearLayout bottom = DashboardSheet.row(this); bottom.setGravity(android.view.Gravity.CENTER); bottom.setPadding(p, p, p, p + 8);
+        android.widget.Button dl = DashboardSheet.btn(this, "⬇  Download video ini", true);
+        dl.setOnClickListener(v -> { download(url, title); d.dismiss(); });
+        bottom.addView(dl);
+        root.addView(bottom, new android.widget.FrameLayout.LayoutParams(-1, -2, android.view.Gravity.BOTTOM));
+        android.widget.MediaController mc = new android.widget.MediaController(this); mc.setAnchorView(video); video.setMediaController(mc);
+        video.setOnPreparedListener(mp -> { spinner.setVisibility(View.GONE); mp.setLooping(true); video.start(); });
+        video.setOnErrorListener((mp, what, extra) -> { spinner.setVisibility(View.GONE); Toast.makeText(this, "Video tidak bisa diputar (" + what + "/" + extra + ")", Toast.LENGTH_LONG).show(); return true; });
+        video.setVideoURI(Uri.parse(url), mediaHeaders(url));
+        root.setOnClickListener(v -> d.dismiss());
+        d.setOnDismissListener(x -> { try { video.stopPlayback(); } catch (Exception ignored) {} if (playerDialog == d) playerDialog = null; });
+        d.setContentView(root); d.show();
+    }
+
     static boolean isSite(String url) {
         try {
             Uri uri = Uri.parse(url == null ? "" : url);
@@ -299,15 +381,22 @@ public class MainActivity extends AppCompatActivity {
             if (pendingN > 0 && attempt < 10) { web.postDelayed(() -> scan(done, attempt + 1), 500); return; }
             try {
                 JSONArray arr = new JSONArray(r);
-                for (int i = 0; i < arr.length(); i++) { JSONObject v = arr.getJSONObject(i); if (!videos.containsKey(v.getString("url"))) videos.put(v.getString("url"), v); }
+                for (int i = 0; i < arr.length(); i++) addVideo(arr.getJSONObject(i));
             } catch (Exception ignored) {}
             if (done != null) done.run();
         });
     }
 
+    void addVideo(JSONObject v) throws Exception {
+        String key = v.optString("vid", ""); if (key.isEmpty()) key = v.getString("url");
+        if (videos.containsKey(key)) return;
+        v.put("seq", videos.size() + 1); v.put("foundAt", System.currentTimeMillis());
+        videos.put(key, v);
+    }
+
     class Bridge {
         @JavascriptInterface public void onAttached() { runOnUiThread(() -> { setActive(false); Toast.makeText(MainActivity.this, "File MD terlampir ke composer.", Toast.LENGTH_SHORT).show(); }); }
-        @JavascriptInterface public void onVideo(String json) { try { JSONObject v = new JSONObject(json); if (!videos.containsKey(v.getString("url"))) videos.put(v.getString("url"), v); } catch (Exception ignored) {} }
+        @JavascriptInterface public void onVideo(String json) { try { addVideo(new JSONObject(json)); } catch (Exception ignored) {} }
     }
 
     @Override protected void onActivityResult(int req, int res, Intent data) {

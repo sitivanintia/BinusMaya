@@ -19,6 +19,8 @@ APK yang memuat dola.com di WebView dengan dashboard unduhan. Request Dola tidak
 ## Deteksi & Download (v1.5.0 — sistem SESI MAX MODE)
 - `assets/inject.js` memakai pipeline extractor SESI MAX MODE: `fallback_api` disadap dari respons API Dola (fetch/XHR, termasuk JSON bersarang dalam string), lalu diambil ulang dengan `channel=no&codec_type=8&logo_type=unwatermarked`, entri kualitas tertinggi dipilih, dan token `main_url` didekode (URL langsung / base64 / `qAAB` AES-CBC dengan `key_seed`). Versi lama menganggap `fallback_api` sebagai URL video sehingga tidak ada video valid yang terdeteksi/terunduh.
 - Unduhan lewat Android DownloadManager persis seperti SESI: Android 10+ ke folder `Download/`, Android 8–9 ke folder Download khusus aplikasi (tanpa izin penyimpanan). Status **Saving/Saved/Gagal** di dashboard mengikuti status DownloadManager yang dilacak di SharedPreferences (`downloads`), bukan ditandai saat enqueue.
+- Navigasi mengikuti SESI: semua halaman http(s) (login Google/Apple/Facebook, redirect, CDN) tetap di WebView yang sama sehingga login kembali ke Dola; hanya WhatsApp/intent/mailto/tel yang keluar aplikasi.
+- Daftar video: thumbnail di-decode native (`MediaMetadataRetriever` dengan cookie/UA Dola, atau poster dari API), nomor urut `#n`, terbaru di atas, lencana **BARU** untuk video yang belum terlihat saat dashboard terakhir dibuka, durasi, dan ketuk thumbnail → pop-up player native dengan tombol Download.
 - **Akun** (tombol di dashboard): simpan sesi login Dola per akun (cookies via `CookieManager` + snapshot `localStorage`), ganti akun tanpa login ulang, “Akun baru” untuk logout bersih. Data tersimpan lokal.
 
 ## Build

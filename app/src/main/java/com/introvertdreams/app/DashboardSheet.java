@@ -15,7 +15,10 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /** SESI-style dashboard: status, counters, manual scan, per-video download, switches. */
 public class DashboardSheet {
@@ -54,34 +57,56 @@ public class DashboardSheet {
         root.addView(groupTitle(a, "Video siap download"));
         LinearLayout list = card(a); root.addView(list);
 
+        // Videos first seen since the dashboard was last opened get a BARU badge (SESI behaviour).
+        Set<String> seenAtOpen = new HashSet<>(a.prefs.getStringSet("seenVideos", Collections.<String>emptySet()));
+        Set<String> nowSeen = new HashSet<>(seenAtOpen);
         Runnable[] render = new Runnable[1];
         render[0] = () -> {
             list.removeAllViews();
             ArrayList<JSONObject> vs = new ArrayList<>(a.videos.values());
+            Collections.reverse(vs); // newest first
             Map<String, String> states = a.downloadStates();
             int savedN = 0; boolean busy = false;
             for (JSONObject v : vs) { String st = states.get(v.optString("url")); if ("complete".equals(st)) savedN++; if ("in_progress".equals(st)) busy = true; }
             ((TextView) found.getTag()).setText(String.valueOf(vs.size())); ((TextView) saved.getTag()).setText(String.valueOf(savedN));
             if (vs.isEmpty()) { TextView e = tv(a, "Belum ada video. Buka chat yang berisi video lalu ketuk Scan chat.", 13, TEXT2, false); e.setPadding(dp(sv, 12), dp(sv, 14), dp(sv, 12), dp(sv, 14)); list.addView(e); return; }
-            int i = 0;
             for (JSONObject v : vs) {
+                String url = v.optString("url"); String key = v.optString("vid", url); nowSeen.add(key);
+                boolean isNew = !seenAtOpen.contains(key);
                 LinearLayout r = row(a); r.setPadding(dp(sv, 12), dp(sv, 10), dp(sv, 12), dp(sv, 10)); r.setGravity(Gravity.CENTER_VERTICAL);
+                // thumbnail (native decode with Dola cookies); tap → pop-up player
+                android.widget.FrameLayout thumbWrap = new android.widget.FrameLayout(a);
+                android.graphics.drawable.GradientDrawable tbg = new android.graphics.drawable.GradientDrawable(); tbg.setColor(Color.parseColor("#33000000")); tbg.setCornerRadius(dp(r, 8)); thumbWrap.setBackground(tbg); thumbWrap.setClipToOutline(true);
+                android.widget.ImageView thumb = new android.widget.ImageView(a); thumb.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+                thumbWrap.addView(thumb, new android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                TextView play = tv(a, "▶", 16, Color.WHITE, true); play.setGravity(Gravity.CENTER); play.setShadowLayer(6, 0, 0, Color.BLACK);
+                thumbWrap.addView(play, new android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                if (v.optInt("duration") > 0) { TextView dur = tv(a, fmtDur(v.optInt("duration")), 10, Color.WHITE, true); dur.setPadding(dp(r, 4), 0, dp(r, 4), 0); dur.setBackgroundColor(Color.parseColor("#99000000")); android.widget.FrameLayout.LayoutParams dl = new android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM | Gravity.END); dl.setMargins(0, 0, dp(r, 3), dp(r, 3)); thumbWrap.addView(dur, dl); }
+                LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(dp(r, 72), dp(r, 48)); tlp.rightMargin = dp(r, 10);
+                r.addView(thumbWrap, tlp);
+                a.requestThumb(url, v.optString("poster", ""), bmp -> { if (bmp != null) thumb.setImageBitmap(bmp); });
+                String name = v.optString("name", "video");
+                thumbWrap.setOnClickListener(x -> a.showPlayer(url, name));
                 LinearLayout meta = new LinearLayout(a); meta.setOrientation(LinearLayout.VERTICAL);
-                String name = v.optString("name", "video_" + (++i));
                 String dim = v.optInt("width") > 0 ? v.optInt("width") + "×" + v.optInt("height") : v.optString("definition", "mp4");
-                String st = states.get(v.optString("url"));
+                String st = states.get(url);
                 String status = "complete".equals(st) ? "Saved · " + dim : "in_progress".equals(st) ? "Saving…" : "interrupted".equals(st) ? "Gagal · ketuk untuk ulangi" : dim;
-                meta.addView(tv(a, name, 13, TEXT, true)); meta.addView(tv(a, status, 11, "complete".equals(st) ? GREEN : "interrupted".equals(st) ? ORANGE : TEXT2, false));
+                LinearLayout nameRow = row(a);
+                if (isNew) { TextView badge = tv(a, "BARU", 9, BG, true); badge.setPadding(dp(r, 5), dp(r, 1), dp(r, 5), dp(r, 1)); android.graphics.drawable.GradientDrawable bb = new android.graphics.drawable.GradientDrawable(); bb.setColor(GREEN); bb.setCornerRadius(dp(r, 6)); badge.setBackground(bb); LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); bl.rightMargin = dp(r, 6); nameRow.addView(badge, bl); }
+                TextView nm = tv(a, name, 13, TEXT, true); nm.setSingleLine(); nm.setEllipsize(android.text.TextUtils.TruncateAt.END); nameRow.addView(nm, weight());
+                meta.addView(nameRow);
+                meta.addView(tv(a, "#" + v.optInt("seq") + " · " + status, 11, "complete".equals(st) ? GREEN : "interrupted".equals(st) ? ORANGE : TEXT2, false));
                 r.addView(meta, weight());
                 Button dl = btn(a, "complete".equals(st) ? "✓ Ulangi" : "in_progress".equals(st) ? "…" : "⬇ Download", false);
                 dl.setEnabled(!"in_progress".equals(st));
-                dl.setOnClickListener(x -> { a.download(v.optString("url"), name); render[0].run(); }); r.addView(dl);
+                dl.setOnClickListener(x -> { a.download(url, name); render[0].run(); }); r.addView(dl);
                 list.addView(r);
             }
             // Poll DownloadManager while something is saving so Saving → Saved updates live.
             if (busy) list.postDelayed(() -> { if (d.isShowing()) render[0].run(); }, 1500);
         };
         render[0].run();
+        d.setOnDismissListener(x -> a.prefs.edit().putStringSet("seenVideos", nowSeen).apply());
         scan.setOnClickListener(v -> { hint.setText("Memindai chat…"); a.scan(() -> { render[0].run(); hint.setText(a.videos.isEmpty() ? "Tidak ada video di halaman ini." : a.videos.size() + " video ditemukan"); }); });
 
         root.addView(groupTitle(a, "Info"));
@@ -103,6 +128,7 @@ public class DashboardSheet {
         d.setContentView(sv); d.show();
     }
 
+    static String fmtDur(int sec) { return sec >= 3600 ? String.format(java.util.Locale.US, "%d:%02d:%02d", sec / 3600, sec % 3600 / 60, sec % 60) : String.format(java.util.Locale.US, "%d:%02d", sec / 60, sec % 60); }
     static LinearLayout.LayoutParams weight() { return new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1); }
     static LinearLayout.LayoutParams mt(View v, int t) { LinearLayout.LayoutParams l = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT); l.topMargin = dp(v, t); return l; }
     static LinearLayout row(MainActivity a) { LinearLayout l = new LinearLayout(a); l.setOrientation(LinearLayout.HORIZONTAL); l.setGravity(Gravity.CENTER_VERTICAL); return l; }
