@@ -51,7 +51,8 @@ import java.util.Set;
 public class MainActivity extends AppCompatActivity {
     static final String HOME = "https://www.dola.com/";
     WebView web; ProgressBar progress; SharedPreferences prefs;
-    ImageView activate;
+    ImageView activate, autoPrompt, imageRef;
+    static final String AUTO_PROMPT_KEY = "sesiAutoPromptActivated", IMAGE_NOTE_KEY = "sesiImageNoteActivated";
     ValueCallback<Uri[]> filePathCallback;
     static final int REQ_FILE = 1001;
     final Map<String, JSONObject> videos = Collections.synchronizedMap(new LinkedHashMap<>());
@@ -69,6 +70,11 @@ public class MainActivity extends AppCompatActivity {
         activate.setOnClickListener(v -> attachSkill());
         ImageView fab = findViewById(R.id.fab);
         fab.setOnClickListener(v -> DashboardSheet.show(this));
+        autoPrompt = findViewById(R.id.autoPrompt); imageRef = findViewById(R.id.imageRef);
+        autoPrompt.setOnClickListener(v -> setAutoPrompt(!prefs.getBoolean(AUTO_PROMPT_KEY, false), true));
+        imageRef.setOnClickListener(v -> setImageNote(!prefs.getBoolean(IMAGE_NOTE_KEY, false), true));
+        paintToggle(autoPrompt, prefs.getBoolean(AUTO_PROMPT_KEY, false));
+        paintToggle(imageRef, prefs.getBoolean(IMAGE_NOTE_KEY, false));
 
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true); s.setDatabaseEnabled(true);
@@ -96,7 +102,11 @@ public class MainActivity extends AppCompatActivity {
                     v.evaluateJavascript(js, null);
                 }
             }
-            @Override public void onPageFinished(WebView v, String url) { progress.setVisibility(View.GONE); }
+            @Override public void onPageFinished(WebView v, String url) {
+                progress.setVisibility(View.GONE);
+                // Saved activation is restored silently on every Dola document (SESI behaviour).
+                if (isSite(url)) { if (prefs.getBoolean(AUTO_PROMPT_KEY, false)) setAutoPrompt(true, false); if (prefs.getBoolean(IMAGE_NOTE_KEY, false)) setImageNote(true, false); }
+            }
         });
         web.setWebChromeClient(new WebChromeClient() {
             @Override public void onProgressChanged(WebView v, int p) { progress.setProgress(p); }
@@ -158,9 +168,32 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // Read-only response observer for HD video URLs; runs before site scripts so early responses are seen.
+    // ---- SESI auto prompt: page-start hooks wrap each chat send with the Seedance 2.5 / 30s directive ----
+    void paintToggle(ImageView v, boolean on) { v.setColorFilter(on ? 0xFF7DCF8F : 0xFFD9B47A); v.setAlpha(on ? 0.95f : 0.75f); v.setSelected(on); }
+
+    void setAutoPrompt(boolean enabled, boolean showNotice) {
+        if (!isSite(web.getUrl())) { if (showNotice) Toast.makeText(this, "Buka Dola terlebih dahulu.", Toast.LENGTH_SHORT).show(); return; }
+        web.evaluateJavascript("(()=>{try{const a=window.__sesiAutoPrompt;if(!a)return 'missing';const s=" + (enabled ? "a.activate()" : "a.deactivate()") + ";return s.ready&&s.enabled===" + enabled + "?'ok':'notready'}catch(e){return 'err:'+e.message}})()", r -> {
+            boolean ok = r != null && r.contains("ok");
+            if (ok) prefs.edit().putBoolean(AUTO_PROMPT_KEY, enabled).apply();
+            paintToggle(autoPrompt, ok ? enabled : prefs.getBoolean(AUTO_PROMPT_KEY, false));
+            if (showNotice) Toast.makeText(this, ok ? (enabled ? "Auto prompt aktif… selamat menikmati ☕" : "Auto prompt nonaktif") : "Skrip auto prompt belum siap. Refresh Dola lalu coba lagi.", Toast.LENGTH_SHORT).show();
+        });
+    }
+
+    void setImageNote(boolean enabled, boolean showNotice) {
+        if (!isSite(web.getUrl())) { if (showNotice) Toast.makeText(this, "Buka Dola terlebih dahulu.", Toast.LENGTH_SHORT).show(); return; }
+        web.evaluateJavascript("(()=>{try{const a=window.__sesiAutoPrompt;if(!a)return 'missing';const s=a.setImageNote(" + enabled + ");return s.ready&&s.imageNoteEnabled===" + enabled + "?'ok':'notready'}catch(e){return 'err:'+e.message}})()", r -> {
+            boolean ok = r != null && r.contains("ok");
+            if (ok) prefs.edit().putBoolean(IMAGE_NOTE_KEY, enabled).apply();
+            paintToggle(imageRef, ok ? enabled : prefs.getBoolean(IMAGE_NOTE_KEY, false));
+            if (showNotice) Toast.makeText(this, ok ? (enabled ? "Image referensi aktif (catatan karakter animasi)" : "Image referensi nonaktif") : "Skrip auto prompt belum siap. Refresh Dola lalu coba lagi.", Toast.LENGTH_SHORT).show();
+        });
+    }
+
+    // Document-start bundle: auto-prompt hooks first (they must own fetch/XHR before the site), then the read-only video collector.
     void installDocumentStartScript() {
-        String js = readAsset("inject.js");
+        String js = readAsset("auto-prompt.js") + "\n" + readAsset("inject.js");
         String boot = js;
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(web, boot, new java.util.HashSet<>(java.util.Arrays.asList("https://*.dola.com", "https://dola.com")));
