@@ -1,1 +1,5 @@
-<resources><string name="app_name">Sesi Mini</string></resources>
+<resources>
+    <string name="app_name">Sesi Mini</string>
+    <!-- Web app URL dari Apps Script (…/exec). Kosong = pakai URL yang diisi di layar lisensi. -->
+    <string name="license_url" translatable="false"></string>
+</resources>

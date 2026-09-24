@@ -57,6 +57,7 @@ public class MainActivity extends AppCompatActivity {
     static final int REQ_FILE = 1001;
     final Map<String, JSONObject> videos = Collections.synchronizedMap(new LinkedHashMap<>());
     BroadcastReceiver dlReceiver;
+    LicenseGate license;
     // localStorage snapshot applied to the next Dola document after an account switch (see AccountsSheet).
     String pendingLocalStorage;
 
@@ -133,10 +134,31 @@ public class MainActivity extends AppCompatActivity {
         web.setDownloadListener((url, ua, cd, mime, len) -> download(url, null));
         registerDownloadReceiver();
 
-        if (b == null) web.loadUrl(HOME); else web.restoreState(b);
+        license = new LicenseGate(this);
+        // Dola is only loaded once the online license check (or its sealed cache) passes.
+        final Bundle saved = b;
+        license.ensure(() -> { if (saved == null || web.getUrl() == null) web.loadUrl(HOME); else web.restoreState(saved); });
+    }
+
+    boolean isLicensed() { return license != null && license.isLicensed(); }
+    boolean requireLicense() {
+        if (isLicensed()) return true;
+        Toast.makeText(this, "Aktivasi lisensi terlebih dahulu", Toast.LENGTH_SHORT).show();
+        license.show(() -> { if (web.getUrl() == null || "about:blank".equals(web.getUrl())) web.loadUrl(HOME); });
+        return false;
+    }
+    void onLicenseLost(String why) {
+        web.stopLoading(); web.loadUrl("about:blank");
+        Toast.makeText(this, "Lisensi tidak valid: " + why, Toast.LENGTH_LONG).show();
+        license.show(() -> web.loadUrl(HOME));
+    }
+    @Override protected void onResume() {
+        super.onResume();
+        if (license != null && !isLicensed() && web.getUrl() != null && !"about:blank".equals(web.getUrl())) onLicenseLost("masa tenggang habis, verifikasi online diperlukan");
     }
 
     void attachSkill() {
+        if (!requireLicense()) return;
         if (activate.isSelected()) {
             setActive(false);
             web.evaluateJavascript(readAsset("attach-md.js") + "(\"\", false)", null);
@@ -176,6 +198,7 @@ public class MainActivity extends AppCompatActivity {
     void paintToggle(ImageView v, boolean on) { v.setColorFilter(on ? 0xFF7DCF8F : 0xFFD9B47A); v.setAlpha(on ? 0.95f : 0.75f); v.setSelected(on); }
 
     void setAutoPrompt(boolean enabled, boolean showNotice) {
+        if (enabled && showNotice && !requireLicense()) return;
         if (!isSite(web.getUrl())) { if (showNotice) Toast.makeText(this, "Buka Dola terlebih dahulu.", Toast.LENGTH_SHORT).show(); return; }
         web.evaluateJavascript("(()=>{try{const a=window.__sesiAutoPrompt;if(!a)return 'missing';const s=" + (enabled ? "a.activate()" : "a.deactivate()") + ";return s.ready&&s.enabled===" + enabled + "?'ok':'notready'}catch(e){return 'err:'+e.message}})()", r -> {
             boolean ok = r != null && r.contains("ok");
@@ -189,6 +212,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     void setImageNote(boolean enabled, boolean showNotice) {
+        if (enabled && showNotice && !requireLicense()) return;
         if (!isSite(web.getUrl())) { if (showNotice) Toast.makeText(this, "Buka Dola terlebih dahulu.", Toast.LENGTH_SHORT).show(); return; }
         web.evaluateJavascript("(()=>{try{const a=window.__sesiAutoPrompt;if(!a)return 'missing';const s=a.setImageNote(" + enabled + ");return s.ready&&s.imageNoteEnabled===" + enabled + "?'ok':'notready'}catch(e){return 'err:'+e.message}})()", r -> {
             boolean ok = r != null && r.contains("ok");
@@ -252,6 +276,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     void download(String url, String name) {
+        if (!requireLicense()) return;
         String safe = (name == null || name.isEmpty() ? "dola_video" : name).replaceAll("[<>:\"/\\\\|?*\\x00-\\x1F]", "").trim();
         if (!safe.endsWith(".mp4")) safe += ".mp4";
         enqueueDownload(url, "attachment; filename=\"" + safe + "\"", "video/mp4", null);

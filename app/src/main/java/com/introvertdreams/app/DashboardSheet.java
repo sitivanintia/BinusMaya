@@ -38,7 +38,8 @@ public class DashboardSheet {
         TextView title = tv(a, "SESI MINI", 20, TEXT, true); LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1); hdr.addView(title, lp);
         TextView pill = tv(a, "", 12, GREEN, true); hdr.addView(pill); root.addView(hdr);
         TextView sub = tv(a, "Introvert Dreams · Dola companion", 12, TEXT2, false); root.addView(sub);
-        pill.setText("● Active"); pill.setTextColor(GREEN);
+        boolean lic = a.isLicensed();
+        pill.setText(lic ? "● Active" : "○ Belum aktif"); pill.setTextColor(lic ? GREEN : ORANGE);
 
         // counters
         LinearLayout counts = row(a); counts.setPadding(0, dp(sv, 14), 0, 0);
@@ -108,6 +109,15 @@ public class DashboardSheet {
         render[0].run();
         d.setOnDismissListener(x -> a.prefs.edit().putStringSet("seenVideos", nowSeen).apply());
         scan.setOnClickListener(v -> { hint.setText("Memindai chat…"); a.scan(() -> { render[0].run(); hint.setText(a.videos.isEmpty() ? "Tidak ada video di halaman ini." : a.videos.size() + " video ditemukan"); }); });
+
+        root.addView(groupTitle(a, "Lisensi"));
+        LinearLayout lc = card(a); root.addView(lc);
+        lc.addView(info(a, "Device ID", a.license.deviceId()));
+        long exp = a.license.expiresAt();
+        lc.addView(info(a, "Status", lic ? (a.license.licenseName().isEmpty() ? "Aktif" : "Aktif · " + a.license.licenseName()) + (exp > 0 ? " · s/d " + android.text.format.DateFormat.format("d MMM yyyy", exp) : " · lifetime") : "Belum aktif"));
+        LinearLayout lrow = row(a); lrow.setPadding(dp(sv, 12), 0, dp(sv, 12), dp(sv, 12));
+        Button lbtn = btn(a, lic ? "Verifikasi ulang" : "Aktivasi", !lic); lbtn.setOnClickListener(v -> { d.dismiss(); if (lic) a.license.request("verify", a.license.savedKey(), (ok, m) -> { android.widget.Toast.makeText(a, m.startsWith("!") ? m.substring(1) : (ok ? "Lisensi valid ✓" : m), android.widget.Toast.LENGTH_SHORT).show(); if (!ok && m.startsWith("!")) { a.license.clear(); a.onLicenseLost(m.substring(1)); } }); else a.requireLicense(); });
+        lrow.addView(lbtn, weight()); lc.addView(lrow);
 
         root.addView(groupTitle(a, "Info"));
         LinearLayout g = card(a); root.addView(g);

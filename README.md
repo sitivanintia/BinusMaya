@@ -26,6 +26,11 @@ APK yang memuat dola.com di WebView dengan dashboard unduhan. Request Dola tidak
 - Upload gambar: `onShowFileChooser` menghormati `accept` — input `image/*` membuka galeri/photo picker, input dokumen membuka file picker.
 - **Akun** (tombol di dashboard): simpan sesi login Dola per akun (cookies via `CookieManager` + snapshot `localStorage`), ganti akun tanpa login ulang, “Akun baru” untuk logout bersih. Data tersimpan lokal.
 
+## Lisensi online (v1.9.0)
+- Gate lisensi memakai server Google Apps Script + Google Sheet di `server/` (lihat `server/README.md`). Tidak ada secret di APK; key dicek online, terikat Device ID, bisa dicabut/diberi masa berlaku/dibatasi perangkat dari spreadsheet.
+- Aktivasi tersimpan lokal dengan HMAC (ANDROID_ID + package + Device ID) dan berlaku sampai `graceUntil` (3 hari) tanpa internet; aplikasi memverifikasi ulang tiap dibuka (min. 6 jam). Dola tidak dimuat, download/inject/toggle diblokir, sampai lisensi valid.
+- URL server diisi di `res/values/strings.xml` → `license_url`; untuk uji tanpa build, tekan lama judul layar aktivasi lalu tempel URL.
+
 ## Build
 ```
 export ANDROID_HOME=/path/sdk
