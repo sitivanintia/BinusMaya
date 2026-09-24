@@ -31,8 +31,8 @@ APK yang memuat dola.com di WebView dengan dashboard unduhan. Request Dola tidak
 - Aktivasi tersimpan lokal dengan HMAC (ANDROID_ID + package + Device ID) dan berlaku sampai `graceUntil` (3 hari) tanpa internet; aplikasi memverifikasi ulang tiap dibuka (min. 6 jam). Dola tidak dimuat, download/inject/toggle diblokir, sampai lisensi valid.
 - URL server diisi di `res/values/strings.xml` → `license_url`; untuk uji tanpa build, tekan lama judul layar aktivasi lalu tempel URL.
 
-## Update sistem OTA (v1.10.0)
-Dashboard → **Update sistem**: menampilkan versi System MD, Auto prompt, Paksa 30 detik, Pendeteksi video. **Cek & update** mengambil manifest dari server (`action=updates`, sheet `Updates`) dan mengunduh file dari Google Drive ke `files/updates/`; `readAsset()` dan lampiran MD memakai salinan OTA bila ada. Lihat `server/README.md`.
+## Update sistem OTA (v1.10.1)
+Dashboard → **Update sistem**: server membaca satu folder Google Drive (`action=updates`) dan memilih file berversi tertinggi per komponen dari nama file (`Introvert-Dreams-SKILL-v6.md`, `auto-prompt-v2.js`, `single-clip-enforcer-v2.js`, `inject-v2.js`); isi file dikirim server (`action=update_file`) sehingga folder boleh privat. Salinan OTA di `files/updates/` dipakai oleh `readAsset()` dan lampiran MD. Lihat `server/README.md`.
 
 ## SESI Admin (modul `admin/`)
 APK terpisah (`com.introvertdreams.sesiadmin`) untuk mengelola lisensi dari HP lewat endpoint `admin_*` di server (token admin di Script Properties). Lihat `server/README.md`.

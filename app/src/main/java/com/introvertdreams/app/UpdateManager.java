@@ -12,8 +12,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -23,10 +21,11 @@ public class UpdateManager {
     /** asset id → {bundled asset name, bundled version}. Downloaded copies live in files/updates/<id>. */
     static final Map<String, String[]> ASSETS = new LinkedHashMap<>();
     static {
+        // Bundled versions follow the Drive naming scheme: a file named *-v2.* in the folder is an update.
         ASSETS.put("skill_md", new String[]{ "Introvert-Dreams-SKILL-v5.md", "v5", "System MD" });
-        ASSETS.put("auto_prompt", new String[]{ "auto-prompt.js", "7.3.9", "Auto prompt" });
-        ASSETS.put("enforcer", new String[]{ "single-clip-enforcer.js", "2.2", "Paksa 30 detik" });
-        ASSETS.put("collector", new String[]{ "inject.js", "1.5", "Pendeteksi video" });
+        ASSETS.put("auto_prompt", new String[]{ "auto-prompt.js", "v1", "Auto prompt" });
+        ASSETS.put("enforcer", new String[]{ "single-clip-enforcer.js", "v1", "Paksa 30 detik" });
+        ASSETS.put("collector", new String[]{ "inject.js", "v1", "Pendeteksi video" });
     }
 
     final MainActivity a; final SharedPreferences p;
@@ -68,40 +67,28 @@ public class UpdateManager {
             Map<String, String> out = new LinkedHashMap<>();
             try {
                 JSONObject m = new JSONObject(LicenseGate.post(url, new JSONObject().put("action", "updates").toString()));
+                if (!m.optBoolean("ok")) throw new IllegalStateException("no_folder".equals(m.optString("reason")) ? "folder update belum diatur di server" : "server tidak bisa membaca folder Drive");
                 JSONArray arr = m.optJSONArray("assets"); if (arr == null) arr = new JSONArray();
                 for (String id : ASSETS.keySet()) {
                     JSONObject e = null; for (int i = 0; i < arr.length(); i++) if (id.equals(arr.getJSONObject(i).optString("id"))) e = arr.getJSONObject(i);
                     if (e == null || e.optString("version").isEmpty()) { out.put(id, "latest"); continue; }
                     String remote = e.optString("version"), local = version(id);
                     if (compare(remote, local) <= 0) { out.put(id, "latest"); continue; }
-                    if (!install || e.optString("url").isEmpty()) { out.put(id, "available:" + remote); continue; }
+                    if (!install) { out.put(id, "available:" + remote); continue; }
                     try {
-                        byte[] data = download(e.optString("url"));
+                        JSONObject f = new JSONObject(LicenseGate.post(url, new JSONObject().put("action", "update_file").put("fileId", e.optString("fileId")).toString()));
+                        if (!f.optBoolean("ok")) throw new IllegalStateException("server menolak file (" + f.optString("reason") + ")");
+                        byte[] data = android.util.Base64.decode(f.optString("content"), android.util.Base64.DEFAULT);
                         if (data.length < 20) throw new IllegalStateException("file kosong");
-                        if (id.endsWith("_md") ? !new String(data, 0, Math.min(data.length, 200), StandardCharsets.UTF_8).contains("-") : new String(data, 0, Math.min(data.length, 300), StandardCharsets.UTF_8).toLowerCase().contains("<html")) throw new IllegalStateException("bukan file yang diharapkan (link Drive belum publik?)");
                         try (FileOutputStream fo = new FileOutputStream(fileFor(id))) { fo.write(data); }
-                        String name = e.optString("filename").isEmpty() ? ASSETS.get(id)[0] : e.optString("filename");
+                        String name = f.optString("name", e.optString("filename", ASSETS.get(id)[0]));
                         p.edit().putString("upd." + id + ".ver", remote).putString("upd." + id + ".name", name).putLong("upd." + id + ".at", System.currentTimeMillis()).apply();
                         out.put(id, "updated:" + remote);
                     } catch (Exception ex) { out.put(id, "error:" + (ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage())); }
                 }
-            } catch (Exception ex) { for (String id : ASSETS.keySet()) out.put(id, "error:server tidak terjangkau"); }
+            } catch (Exception ex) { for (String id : ASSETS.keySet()) out.put(id, "error:" + (ex.getMessage() == null ? "server tidak terjangkau" : ex.getMessage())); }
             a.runOnUiThread(() -> done.onReceiveValue(out));
         }, "sesi-updates").start();
-    }
-
-    // Drive "uc?export=download" may 302 to googleusercontent; follow, and detect the virus-scan HTML page for big files.
-    static byte[] download(String url) throws Exception {
-        String cur = url;
-        for (int hop = 0; hop < 5; hop++) {
-            HttpURLConnection c = (HttpURLConnection) new URL(cur).openConnection();
-            c.setInstanceFollowRedirects(false); c.setConnectTimeout(15000); c.setReadTimeout(30000);
-            int code = c.getResponseCode();
-            if (code == 301 || code == 302 || code == 303 || code == 307) { cur = c.getHeaderField("Location"); c.disconnect(); if (cur == null) throw new IllegalStateException("redirect"); continue; }
-            if (code < 200 || code >= 300) throw new IllegalStateException("HTTP " + code);
-            try (InputStream in = c.getInputStream()) { return readAll(in); }
-        }
-        throw new IllegalStateException("terlalu banyak redirect");
     }
 
     /** Revert one asset to the APK-bundled copy. */

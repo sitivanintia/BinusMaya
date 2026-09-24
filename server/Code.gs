@@ -24,6 +24,7 @@ function handle(req) {
   const action = String(req.action || '');
   if (!action) return out.setContent(JSON.stringify({ ok: true, service: 'sesi-license', time: Date.now() }));
   if (action === 'updates') return out.setContent(JSON.stringify(updatesManifest()));
+  if (action === 'update_file') return out.setContent(JSON.stringify(updateFile(req)));
   if (action.startsWith('admin_')) return out.setContent(JSON.stringify(admin(action, req)));
   const key = normalizeKey(req.key), deviceId = String(req.deviceId || '').trim().toUpperCase(), nonce = String(req.nonce || '');
   if (!/^SESI-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/.test(key) || !/^[2-9A-HJ-NP-Z]{6}$/.test(deviceId)) {
@@ -103,97 +104,53 @@ function generateKeys(count, maxDevices, days, name) {
 function randomBlock(n) { let s = ''; for (let i = 0; i < n; i++) s += ALPHA.charAt(Math.floor(Math.random() * ALPHA.length)); return s; }
 
 // ---------------------------------------------------------------------------------------------
-// Update system: sheet "Updates" → APK mengunduh file MD / auto-prompt / enforcer terbaru dari Google Drive.
-// Kolom: A Asset (skill_md | auto_prompt | enforcer | collector) | B Versi | C Link Drive | D Nama File | E Catatan
-// Link Drive: klik kanan file → Bagikan → "Siapa saja yang memiliki link" → salin link; tempel apa adanya.
+// Update system: satu folder Google Drive. Drop file ke folder; versi dibaca dari NAMA file.
+//   Introvert-Dreams-SKILL-v6.md  → skill_md v6      auto-prompt-v2.js → auto_prompt v2
+//   single-clip-enforcer-v2.js    → enforcer v2      inject-v2.js / collector-v2.js → collector v2
+// Server membaca folder sebagai pemilik, jadi file tidak perlu di-share publik.
+// Isi UPDATES_FOLDER dengan link/ID folder, atau Run setUpdatesFolder() setelah menempel link di dalamnya.
 // ---------------------------------------------------------------------------------------------
-const UPDATES_SHEET = 'Updates';
-function setupUpdates() {
-  const ss = SpreadsheetApp.getActive();
-  let sheet = ss.getSheetByName(UPDATES_SHEET);
-  if (!sheet) sheet = ss.insertSheet(UPDATES_SHEET);
-  if (sheet.getLastRow() === 0) {
-    sheet.appendRow(['Asset', 'Versi', 'Link Drive', 'Nama File', 'Catatan']);
-    sheet.appendRow(['skill_md', 'v5', '', 'Introvert-Dreams-SKILL-v5.md', 'File MD yang dilampirkan ke composer. Naikkan versi (v6) + ganti link saat ada pembaruan.']);
-    sheet.appendRow(['auto_prompt', '7.3.9', '', 'auto-prompt.js', 'Skrip auto prompt (directive Seedance 2.5 / 30s).']);
-    sheet.appendRow(['enforcer', '2.2', '', 'single-clip-enforcer.js', 'Paksa 1 video × 30 detik.']);
-    sheet.appendRow(['collector', '1.5', '', 'inject.js', 'Pendeteksi video (fallback_api).']);
-    sheet.setFrozenRows(1); sheet.getRange('B:B').setNumberFormat('@');
-  }
+const UPDATES_FOLDER = '';
+function setUpdatesFolder() { const link = 'TEMPEL_LINK_FOLDER_DI_SINI'; PropertiesService.getScriptProperties().setProperty('UPDATES_FOLDER', link); Logger.log('Folder update disimpan: ' + folderId()); }
+function folderId() {
+  const raw = PropertiesService.getScriptProperties().getProperty('UPDATES_FOLDER') || UPDATES_FOLDER;
+  const m = String(raw || '').match(/folders\/([\w-]+)/) || String(raw || '').match(/[?&]id=([\w-]+)/) || String(raw || '').match(/^([\w-]{20,})$/);
+  return m ? m[1] : '';
 }
-function driveDirectUrl(link) {
-  const s = String(link || '').trim(); if (!s) return '';
-  const m = s.match(/\/file\/d\/([\w-]+)/) || s.match(/[?&]id=([\w-]+)/) || s.match(/^([\w-]{20,})$/);
-  return m ? 'https://drive.google.com/uc?export=download&id=' + m[1] : s;
+const ASSET_RULES = [
+  { id: 'skill_md',    test: n => /\.md$/i.test(n) && /skill|introvert|system/i.test(n) },
+  { id: 'auto_prompt', test: n => /auto[-_ ]?prompt/i.test(n) },
+  { id: 'enforcer',    test: n => /enforcer|single[-_ ]?clip|30s|paksa/i.test(n) },
+  { id: 'collector',   test: n => /inject|collector|detect/i.test(n) },
+];
+function versionOf(name) {
+  const base = name.replace(/\.[a-z0-9]+$/i, '');
+  const m = base.match(/[-_ ]v?(\d+(?:\.\d+)*)$/i) || base.match(/v(\d+(?:\.\d+)*)/i);
+  return m ? m[1] : '';
 }
+function cmpVer(a, b) { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d; } return 0; }
 function updatesManifest() {
-  const sheet = SpreadsheetApp.getActive().getSheetByName(UPDATES_SHEET);
-  if (!sheet) return { ok: true, assets: [], note: 'run setupUpdates()' };
-  const rows = sheet.getDataRange().getValues(), assets = [];
-  for (let i = 1; i < rows.length; i++) {
-    const r = rows[i]; if (!r[0]) continue;
-    assets.push({ id: String(r[0]).trim(), version: String(r[1] || '').trim(), url: driveDirectUrl(r[2]), filename: String(r[3] || '').trim(), note: String(r[4] || '') });
+  const id = folderId();
+  if (!id) return { ok: false, reason: 'no_folder', assets: [] };
+  let folder; try { folder = DriveApp.getFolderById(id); } catch (e) { return { ok: false, reason: 'folder_access', assets: [] }; }
+  const best = {};
+  const files = folder.getFiles();
+  while (files.hasNext()) {
+    const f = files.next(); const name = f.getName(); const ver = versionOf(name); if (!ver) continue;
+    const rule = ASSET_RULES.find(r => r.test(name)); if (!rule) continue;
+    if (!best[rule.id] || cmpVer(ver, best[rule.id].version) > 0) best[rule.id] = { id: rule.id, version: 'v' + ver, filename: name, fileId: f.getId(), size: f.getSize(), updated: f.getLastUpdated().getTime() };
   }
-  return { ok: true, assets, serverTime: Date.now() };
+  return { ok: true, assets: Object.values(best), folder: folder.getName(), serverTime: Date.now() };
 }
-
-// ---------------------------------------------------------------------------------------------
-// Admin API (dipakai APK SESI Admin). Token disimpan di Script Properties, bukan di kode.
-// Jalankan setupAdmin() sekali dari editor: token dicetak di Execution log → masukkan ke APK Admin.
-// ---------------------------------------------------------------------------------------------
-function setupAdmin() {
-  setupSheet();
-  const props = PropertiesService.getScriptProperties();
-  let token = props.getProperty('ADMIN_TOKEN');
-  if (!token) { token = 'ADM-' + randomBlock(6) + '-' + randomBlock(6) + '-' + randomBlock(6); props.setProperty('ADMIN_TOKEN', token); }
-  Logger.log('ADMIN TOKEN (masukkan ke APK SESI Admin):\n' + token);
-  return token;
-}
-/** Ganti token bila bocor. */
-function resetAdminToken() { PropertiesService.getScriptProperties().deleteProperty('ADMIN_TOKEN'); return setupAdmin(); }
-
-function admin(action, req) {
-  const nonce = String(req.nonce || '');
-  const expected = PropertiesService.getScriptProperties().getProperty('ADMIN_TOKEN');
-  if (!expected) return { ok: false, reason: 'admin_setup', nonce };
-  if (String(req.adminToken || '') !== expected) return { ok: false, reason: 'unauthorized', nonce };
-  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+/** Isi file dikirim langsung oleh server (base64), sehingga folder boleh privat. Hanya file dari folder update. */
+function updateFile(req) {
+  const id = folderId(), fileId = String(req.fileId || '');
+  if (!id || !fileId) return { ok: false, reason: 'bad_request' };
   try {
-    setupSheet();
-    const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET);
-    if (action === 'admin_ping') return { ok: true, nonce };
-    if (action === 'admin_create') {
-      const keys = generateKeys(Math.min(50, Math.max(1, Number(req.count) || 1)), Math.max(1, Number(req.maxDevices) || 1), Math.max(0, Number(req.days) || 0), String(req.name || '').slice(0, 60));
-      return { ok: true, keys, nonce, licenses: listLicenses(sheet) };
-    }
-    if (action === 'admin_list') return { ok: true, nonce, licenses: listLicenses(sheet), serverTime: Date.now() };
-    const key = normalizeKey(req.key);
-    const rows = sheet.getDataRange().getValues();
-    let r = -1; for (let i = 1; i < rows.length; i++) if (normalizeKey(rows[i][0]) === key) { r = i + 1; break; }
-    if (r < 0) return { ok: false, reason: 'not_found', nonce };
-    if (action === 'admin_set_status') sheet.getRange(r, 3).setValue(String(req.status) === 'revoked' ? 'revoked' : 'active');
-    else if (action === 'admin_rename') sheet.getRange(r, 2).setValue(String(req.name || '').slice(0, 60));
-    else if (action === 'admin_set_max') sheet.getRange(r, 4).setValue(Math.max(1, Number(req.maxDevices) || 1));
-    else if (action === 'admin_set_expiry') sheet.getRange(r, 6).setValue(Number(req.days) > 0 ? new Date(Date.now() + Number(req.days) * 86400000) : '');
-    else if (action === 'admin_release') {
-      const dev = String(req.deviceId || '').trim().toUpperCase();
-      const devices = String(rows[r - 1][4] || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
-      sheet.getRange(r, 5).setValue((dev ? devices.filter(d => d !== dev) : []).join(', '));
-    }
-    else if (action === 'admin_delete') sheet.deleteRow(r);
-    else return { ok: false, reason: 'bad_request', nonce };
-    return { ok: true, nonce, licenses: listLicenses(sheet) };
-  } finally { lock.releaseLock(); }
-}
-
-function listLicenses(sheet) {
-  const rows = sheet.getDataRange().getValues();
-  const toMs = v => v instanceof Date ? v.getTime() : (v ? new Date(v).getTime() || 0 : 0);
-  const list = [];
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i]; if (!row[0]) continue;
-    list.push({ key: normalizeKey(row[0]), name: String(row[1] || ''), status: String(row[2] || 'active').toLowerCase(), maxDevices: Number(row[3]) || 1,
-      devices: String(row[4] || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean), expiresAt: toMs(row[5]), activatedAt: toMs(row[6]), lastSeen: toMs(row[7]), note: String(row[8] || '') });
-  }
-  return list;
+    const f = DriveApp.getFileById(fileId);
+    let inFolder = false; const parents = f.getParents(); while (parents.hasNext()) if (parents.next().getId() === id) inFolder = true;
+    if (!inFolder) return { ok: false, reason: 'not_in_folder' };
+    if (f.getSize() > 2 * 1024 * 1024) return { ok: false, reason: 'too_large' };
+    return { ok: true, name: f.getName(), size: f.getSize(), content: Utilities.base64Encode(f.getBlob().getBytes()) };
+  } catch (e) { return { ok: false, reason: 'file_access' }; }
 }

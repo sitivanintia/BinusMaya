@@ -35,10 +35,13 @@ Aplikasi hanya mempercayai respons HTTPS dari URL yang dikonfigurasi (Android 7+
 
 Fitur: buat key (jumlah, max perangkat, masa berlaku, label), nonaktifkan/aktifkan, lepas perangkat, ubah nama/max/expiry, hapus, salin/kirim key via WA, monitoring (total, aktif, HP terdaftar, online 24 jam, mati) dengan filter & pencarian. Token bocor → jalankan `resetAdminToken()`.
 
-## Update sistem (MD / auto prompt / enforcer / collector lewat Google Drive)
-1. Tempel `Code.gs` terbaru, Run **`setupUpdates`** sekali → tab **Updates** dibuat berisi 4 baris: `skill_md`, `auto_prompt`, `enforcer`, `collector` dengan versi bawaan APK.
-2. Deploy versi baru (Manage deployments → ✏ → New version).
-3. Saat ada file baru: upload ke Google Drive → klik kanan → **Bagikan → Siapa saja yang memiliki link** → salin link → tempel ke kolom **Link Drive**, naikkan kolom **Versi** (mis. `v5` → `v6`, `7.3.9` → `7.4.0`), isi **Nama File** bila berubah (mis. `Introvert-Dreams-SKILL-v6.md`).
-4. Di APK, dashboard → **Update sistem → Cek & update**. Versi lebih tinggi dari yang terpasang diunduh dan langsung dipakai (MD dilampirkan dengan nama file baru; skrip aktif setelah halaman Dola dimuat ulang). Tekan lama baris komponen untuk kembali ke bawaan APK.
-
-Versi dibandingkan secara numerik (`v6` > `v5`, `2.10` > `2.9`). Kosongkan Link Drive = tidak ada update untuk komponen itu.
+## Update sistem (folder Google Drive, deteksi dari nama file)
+1. Buat satu folder di Google Drive (tidak perlu di-share; server membacanya sebagai akunmu).
+2. Di `Code.gs`, fungsi `setUpdatesFolder()`: ganti `TEMPEL_LINK_FOLDER_DI_SINI` dengan link folder → simpan → Run `setUpdatesFolder`. (Atau minta developer membake link ke konstanta `UPDATES_FOLDER`.) Deploy versi baru.
+3. Rilis update = **drop file ke folder** dengan nama berversi. Server memilih versi tertinggi per komponen:
+   - System MD: `Introvert-Dreams-SKILL-v6.md` (nama mengandung "skill"/"introvert", akhiran `.md`)
+   - Auto prompt: `auto-prompt-v2.js`
+   - Paksa 30 detik: `single-clip-enforcer-v2.js`
+   - Pendeteksi video: `inject-v2.js`
+   Versi bawaan APK: MD **v5**, lainnya **v1**. Angka boleh bertitik (`v2.1`); `v10` > `v2`.
+4. Di APK: dashboard → **Update sistem → Cek & update**. File diambil lewat server (base64, maks 2 MB) dan langsung dipakai. Long-press baris untuk kembali ke bawaan APK.
