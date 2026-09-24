@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="BinusMaya student portal: schedule, courses, assessments, and forum deadlines in one place." />
+  <title>BinusMaya — Student Portal</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+
+  <header class="app-header">
+    <div class="header-inner">
+      <a class="brand" href="#/dashboard" aria-label="BinusMaya home">BinusMaya</a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="primary-nav" aria-label="Menu">
+        <span aria-hidden="true">☰</span>
+      </button>
+      <nav id="primary-nav" class="primary-nav" aria-label="Primary">
+        <ul>
+          <li><a href="#/dashboard" data-nav>Dashboard</a></li>
+          <li><a href="#/schedule" data-nav>Schedule</a></li>
+          <li><a href="#/courses" data-nav>Courses</a></li>
+          <li><a href="#/forum" data-nav>Forum</a></li>
+        </ul>
+      </nav>
+      <div class="header-actions">
+        <button id="theme-toggle" class="icon-btn" type="button" aria-pressed="false" aria-label="Switch to dark mode">🌙</button>
+        <div class="notif-wrap">
+          <button id="notif-btn" class="icon-btn" type="button" aria-expanded="false" aria-controls="notif-panel" aria-label="Notifications">
+            🔔<span id="notif-badge" class="badge" hidden></span>
+          </button>
+          <section id="notif-panel" class="notif-panel" aria-label="Notifications" hidden>
+            <div class="notif-head">
+              <h2>Notifications</h2>
+              <button id="notif-read-all" class="link-btn" type="button">Mark all read</button>
+            </div>
+            <ul id="notif-list"></ul>
+          </section>
+        </div>
+        <button id="logout-btn" class="icon-btn" type="button" aria-label="Log out" hidden>↩</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main" class="main">
+    <section id="view-login" class="view" aria-labelledby="login-heading" hidden>
+      <div class="login-card">
+        <h1 id="login-heading" tabindex="-1">Log in to BinusMaya</h1>
+        <p class="muted">Use your BINUS NIM and password.</p>
+        <div id="login-error" class="form-error" role="alert" tabindex="-1" hidden></div>
+        <form id="login-form" novalidate>
+          <div class="field">
+            <label for="login-nim">NIM</label>
+            <input id="login-nim" name="nim" type="text" inputmode="numeric" autocomplete="username"
+                   placeholder="e.g. 2502001234" aria-describedby="nim-error" required />
+            <p id="nim-error" class="field-error" hidden></p>
+          </div>
+          <div class="field">
+            <label for="login-password">Password</label>
+            <div class="password-wrap">
+              <input id="login-password" name="password" type="password" autocomplete="current-password"
+                     aria-describedby="password-error" required minlength="8" />
+              <button id="password-toggle" class="link-btn" type="button" aria-pressed="false"
+                      aria-controls="login-password">Show</button>
+            </div>
+            <p id="password-error" class="field-error" hidden></p>
+          </div>
+          <button id="login-submit" class="btn primary" type="submit">Log in</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="view-dashboard" class="view" aria-labelledby="dash-heading" hidden>
+      <h1 id="dash-heading" tabindex="-1">Good <span id="daypart">day</span>, <span id="student-name">Student</span></h1>
+      <p class="muted">Everything due soon, in one place.</p>
+      <div id="dash-content" class="grid"></div>
+    </section>
+
+    <section id="view-schedule" class="view" aria-labelledby="sched-heading" hidden>
+      <h1 id="sched-heading" tabindex="-1">Class schedule</h1>
+      <p class="muted">This week · times in WIB</p>
+      <div id="sched-content"></div>
+    </section>
+
+    <section id="view-courses" class="view" aria-labelledby="courses-heading" hidden>
+      <h1 id="courses-heading" tabindex="-1">My courses</h1>
+      <div id="courses-content" class="grid"></div>
+    </section>
+
+    <section id="view-forum" class="view" aria-labelledby="forum-heading" hidden>
+      <h1 id="forum-heading" tabindex="-1">Forum</h1>
+      <p class="muted">Unread threads first, so nothing slips by.</p>
+      <div id="forum-content"></div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>BinusMaya · demo build, no real data leaves your browser</p>
+  </footer>
+
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="false"></div>
+  <script src="app.js" defer></script>
+</body>
+</html>
