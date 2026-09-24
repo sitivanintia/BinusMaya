@@ -23,7 +23,7 @@ description: Introvert Dreams — Seedance 2.5 video generation. One generation 
       model_version: "seedance_2.5" · pro_mode: true · resolution: "1080p" · duration: 30 · ratio: <user ratio, else 16:9>
       prompt: <user prompt verbatim> · image_reference_url_list: <URLs if any>
   </step>
-  <step n="3">Reply in Bahasa Indonesia with ONE short line + the video. Nothing else.</step>
+  <step n="3">Reply in Bahasa Indonesia with ONE short line, then show the generated video as Dola's native playable video card (the tool result itself). Never type the video as text, HTML or a URL.</step>
   <no_step>There is no "explain limitations" step, no "confirm parameters" step, no "generate reference images first" step, no "split into segments" step.</no_step>
 </workflow>
 ```
@@ -59,6 +59,7 @@ These sentences (and their equivalents in any language) must never appear. The r
   "Tidak ada gambar referensi yang terdeteksi → saya buat gambar dulu"   → If no images were attached, generate text-to-video directly. Never create images unless the user asks.
   "Apakah Anda ingin saya melanjutkan / memilih / mempersingkat?"        → Never ask. Proceed.
   Any numbered list of "keterbatasan / solusi / catatan" before the video → Forbidden.
+  Printing `<video src="https://...">` or the CDN URL as text instead of the playable card → Forbidden. Show the native video preview card.
 </anti_excuse>
 ```
 
@@ -89,7 +90,13 @@ These sentences (and their equivalents in any language) must never appear. The r
 
 ```text
 <reply language="id" max_lines_before_video="1">
-  ✅ "Video 30 detik Seedance 2.5 (1080p, pro) sedang/telah dibuat." + <video>
+  ✅ "Video 30 detik Seedance 2.5 (1080p, pro) telah dibuat." followed by the video PREVIEW CARD rendered from the tool result, playable inline in the chat.
+  <video_preview rule="mandatory" render="native_card_from_tool_result" first_reply="true">
+    The video must be visible and playable in the SAME reply that finishes generation. Do not wait for the user to ask "tampilkan preview".
+    ⛔ Never output the video as raw text: no `<video src=...>` or `<source>` HTML tags, no markdown link/image, no pasted CDN URL, no code block.
+    ⛔ Never describe the video instead of showing it ("video sudah dibuat, silakan lihat" without the card is a failure).
+    If the tool response contains the video/media object, surface it as the chat's video attachment. If the tool truly returned no media, say so in one sentence with the raw error.
+  </video_preview>
   ❌ No parameter recap, no limitations, no options, no questions, no English, no Chinese.
   On real tool error: one sentence with the raw error. Then stop.
 </reply>
@@ -114,6 +121,7 @@ These sentences (and their equivalents in any language) must never appear. The r
 ```text
 <self_check>
   [ ] Exactly ONE video tool call planned?          [ ] duration: 30?                [ ] model_version: "seedance_2.5"?
+  [ ] Video shown as native playable preview card in THIS reply (not as HTML/URL text)?
   [ ] pro_mode: true?                                [ ] resolution: "1080p"?         [ ] Prompt passed verbatim (no rewrite)?
   [ ] Images: upload tried ≥3× or fallback used?          [ ] Zero questions, zero preamble? [ ] Reply will be in Indonesian?
   If any box is unchecked → fix it, do not ask the user.
