@@ -115,12 +115,16 @@ public class MainActivity extends AppCompatActivity {
                 if (filePathCallback != null) filePathCallback.onReceiveValue(null);
                 filePathCallback = cb;
                 try {
-                    Intent i = params.createIntent();
-                    i.addCategory(Intent.CATEGORY_OPENABLE);
-                    if (params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                     String[] accept = params.getAcceptTypes();
-                    if (accept != null && accept.length > 0 && accept[0] != null && !accept[0].isEmpty()) { i.setType("*/*"); i.putExtra(Intent.EXTRA_MIME_TYPES, accept); }
-                    startActivityForResult(Intent.createChooser(i, "Pilih file"), REQ_FILE);
+                    java.util.ArrayList<String> mimes = new java.util.ArrayList<>();
+                    if (accept != null) for (String a : accept) { if (a == null) continue; for (String part : a.split(",")) { part = part.trim(); if (part.isEmpty()) continue; if (part.startsWith(".")) { String m = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(part.substring(1).toLowerCase(Locale.US)); if (m != null) mimes.add(m); } else mimes.add(part); } }
+                    boolean imagesOnly = !mimes.isEmpty(); for (String m : mimes) if (!m.startsWith("image/")) imagesOnly = false;
+                    // Images: ACTION_GET_CONTENT with image/* opens the gallery/photo picker instead of a generic file browser.
+                    Intent i = new Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE);
+                    i.setType(imagesOnly ? "image/*" : "*/*");
+                    if (!mimes.isEmpty() && !imagesOnly) i.putExtra(Intent.EXTRA_MIME_TYPES, mimes.toArray(new String[0]));
+                    if (params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE) i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                    startActivityForResult(Intent.createChooser(i, imagesOnly ? "Pilih gambar" : "Pilih file"), REQ_FILE);
                     return true;
                 } catch (Exception e) { filePathCallback = null; return false; }
             }
@@ -175,9 +179,12 @@ public class MainActivity extends AppCompatActivity {
         if (!isSite(web.getUrl())) { if (showNotice) Toast.makeText(this, "Buka Dola terlebih dahulu.", Toast.LENGTH_SHORT).show(); return; }
         web.evaluateJavascript("(()=>{try{const a=window.__sesiAutoPrompt;if(!a)return 'missing';const s=" + (enabled ? "a.activate()" : "a.deactivate()") + ";return s.ready&&s.enabled===" + enabled + "?'ok':'notready'}catch(e){return 'err:'+e.message}})()", r -> {
             boolean ok = r != null && r.contains("ok");
-            if (ok) prefs.edit().putBoolean(AUTO_PROMPT_KEY, enabled).apply();
+            if (ok) {
+                prefs.edit().putBoolean(AUTO_PROMPT_KEY, enabled).apply();
+                web.evaluateJavascript("(()=>{try{const e=window.__whempySingleClip;if(e){e.cfg.enabled=" + enabled + ";e.cfg.aggressive=" + enabled + ";e.cfg.duration=30;e.cfg.forceModel25=" + enabled + ";}}catch(_){}})()", null);
+            }
             paintToggle(autoPrompt, ok ? enabled : prefs.getBoolean(AUTO_PROMPT_KEY, false));
-            if (showNotice) Toast.makeText(this, ok ? (enabled ? "Auto prompt aktif… selamat menikmati ☕" : "Auto prompt nonaktif") : "Skrip auto prompt belum siap. Refresh Dola lalu coba lagi.", Toast.LENGTH_SHORT).show();
+            if (showNotice) Toast.makeText(this, ok ? (enabled ? "Auto prompt aktif · paksa 1 video × 30 detik ☕" : "Auto prompt nonaktif") : "Skrip auto prompt belum siap. Refresh Dola lalu coba lagi.", Toast.LENGTH_SHORT).show();
         });
     }
 
@@ -193,7 +200,7 @@ public class MainActivity extends AppCompatActivity {
 
     // Document-start bundle: auto-prompt hooks first (they must own fetch/XHR before the site), then the read-only video collector.
     void installDocumentStartScript() {
-        String js = readAsset("auto-prompt.js") + "\n" + readAsset("inject.js");
+        String js = readAsset("auto-prompt.js") + "\n" + readAsset("inject.js") + "\n" + readAsset("single-clip-enforcer.js");
         String boot = js;
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(web, boot, new java.util.HashSet<>(java.util.Arrays.asList("https://*.dola.com", "https://dola.com")));

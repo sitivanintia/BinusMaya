@@ -22,6 +22,8 @@ APK yang memuat dola.com di WebView dengan dashboard unduhan. Request Dola tidak
 - Navigasi mengikuti SESI: semua halaman http(s) (login Google/Apple/Facebook, redirect, CDN) tetap di WebView yang sama sehingga login kembali ke Dola; hanya WhatsApp/intent/mailto/tel yang keluar aplikasi.
 - Daftar video: thumbnail di-decode native (`MediaMetadataRetriever` dengan cookie/UA Dola, atau poster dari API), nomor urut `#n`, terbaru di atas, lencana **BARU** untuk video yang belum terlihat saat dashboard terakhir dibuka, durasi, dan ketuk thumbnail → pop-up player native dengan tombol Download.
 - **Auto prompt** & **Image referensi** (v1.7.0, dock kiri sejajar tombol inject MD): `assets/auto-prompt.js` dari SESI MAX MODE dijalankan di document-start; toggle petir membungkus setiap pengiriman chat dengan directive Seedance 2.5 / 30 detik single take (`__sesiAutoPrompt.activate()`), toggle gambar menambah catatan image referensi (`setImageNote`). Status disimpan di SharedPreferences dan dipulihkan otomatis tiap dokumen Dola. Ikon dashboard memakai brand icon SESI.
+- **Paksa 1 video × 30 detik** (v1.8.0): `single-clip-enforcer.js` SESI MAX MODE dimuat setelah collector; diaktifkan bersama toggle Auto prompt (payload rewrite duration→30/count→1, forceModel25, auto-answer dialog split). Nonaktif secara default sampai toggle dinyalakan.
+- Upload gambar: `onShowFileChooser` menghormati `accept` — input `image/*` membuka galeri/photo picker, input dokumen membuka file picker.
 - **Akun** (tombol di dashboard): simpan sesi login Dola per akun (cookies via `CookieManager` + snapshot `localStorage`), ganti akun tanpa login ulang, “Akun baru” untuk logout bersih. Data tersimpan lokal.
 
 ## Build
