@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">SESI Admin</string>
+    <string name="license_url" translatable="false">https://script.google.com/macros/s/AKfycbz71kYSLnl3Gwxnm5S3g1dPN5u8m19RRjniHrxlWkTUlF_NV8sF43nKbnYAtFA1NOU3oQ/exec</string>
+    <color name="ic_bg">#B8322F</color>
+    <style name="Theme.Admin" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">#1a1a1f</item>
+        <item name="android:statusBarColor">#1a1a1f</item>
+        <item name="android:navigationBarColor">#1a1a1f</item>
+        <item name="colorAccent">#7dcf8f</item>
+        <item name="android:textColorPrimary">#f4f4f5</item>
+        <item name="android:textColorSecondary">#a8a8ad</item>
+        <item name="alertDialogTheme">@style/Theme.Admin.Dialog</item>
+    </style>
+    <style name="Theme.Admin.Dialog" parent="Theme.AppCompat.Dialog.Alert">
+        <item name="android:background">#24242b</item>
+        <item name="colorAccent">#7dcf8f</item>
+        <item name="android:textColorPrimary">#f4f4f5</item>
+    </style>
+</resources>

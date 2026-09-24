@@ -23,6 +23,7 @@ function handle(req) {
   const out = ContentService.createTextOutput().setMimeType(ContentService.MimeType.JSON);
   const action = String(req.action || '');
   if (!action) return out.setContent(JSON.stringify({ ok: true, service: 'sesi-license', time: Date.now() }));
+  if (action.startsWith('admin_')) return out.setContent(JSON.stringify(admin(action, req)));
   const key = normalizeKey(req.key), deviceId = String(req.deviceId || '').trim().toUpperCase(), nonce = String(req.nonce || '');
   if (!/^SESI-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/.test(key) || !/^[2-9A-HJ-NP-Z]{6}$/.test(deviceId)) {
     return out.setContent(JSON.stringify({ ok: false, reason: 'bad_request', nonce }));
@@ -99,3 +100,64 @@ function generateKeys(count, maxDevices, days, name) {
 }
 
 function randomBlock(n) { let s = ''; for (let i = 0; i < n; i++) s += ALPHA.charAt(Math.floor(Math.random() * ALPHA.length)); return s; }
+
+// ---------------------------------------------------------------------------------------------
+// Admin API (dipakai APK SESI Admin). Token disimpan di Script Properties, bukan di kode.
+// Jalankan setupAdmin() sekali dari editor: token dicetak di Execution log → masukkan ke APK Admin.
+// ---------------------------------------------------------------------------------------------
+function setupAdmin() {
+  setupSheet();
+  const props = PropertiesService.getScriptProperties();
+  let token = props.getProperty('ADMIN_TOKEN');
+  if (!token) { token = 'ADM-' + randomBlock(6) + '-' + randomBlock(6) + '-' + randomBlock(6); props.setProperty('ADMIN_TOKEN', token); }
+  Logger.log('ADMIN TOKEN (masukkan ke APK SESI Admin):\n' + token);
+  return token;
+}
+/** Ganti token bila bocor. */
+function resetAdminToken() { PropertiesService.getScriptProperties().deleteProperty('ADMIN_TOKEN'); return setupAdmin(); }
+
+function admin(action, req) {
+  const nonce = String(req.nonce || '');
+  const expected = PropertiesService.getScriptProperties().getProperty('ADMIN_TOKEN');
+  if (!expected) return { ok: false, reason: 'admin_setup', nonce };
+  if (String(req.adminToken || '') !== expected) return { ok: false, reason: 'unauthorized', nonce };
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    setupSheet();
+    const sheet = SpreadsheetApp.getActive().getSheetByName(SHEET);
+    if (action === 'admin_ping') return { ok: true, nonce };
+    if (action === 'admin_create') {
+      const keys = generateKeys(Math.min(50, Math.max(1, Number(req.count) || 1)), Math.max(1, Number(req.maxDevices) || 1), Math.max(0, Number(req.days) || 0), String(req.name || '').slice(0, 60));
+      return { ok: true, keys, nonce, licenses: listLicenses(sheet) };
+    }
+    if (action === 'admin_list') return { ok: true, nonce, licenses: listLicenses(sheet), serverTime: Date.now() };
+    const key = normalizeKey(req.key);
+    const rows = sheet.getDataRange().getValues();
+    let r = -1; for (let i = 1; i < rows.length; i++) if (normalizeKey(rows[i][0]) === key) { r = i + 1; break; }
+    if (r < 0) return { ok: false, reason: 'not_found', nonce };
+    if (action === 'admin_set_status') sheet.getRange(r, 3).setValue(String(req.status) === 'revoked' ? 'revoked' : 'active');
+    else if (action === 'admin_rename') sheet.getRange(r, 2).setValue(String(req.name || '').slice(0, 60));
+    else if (action === 'admin_set_max') sheet.getRange(r, 4).setValue(Math.max(1, Number(req.maxDevices) || 1));
+    else if (action === 'admin_set_expiry') sheet.getRange(r, 6).setValue(Number(req.days) > 0 ? new Date(Date.now() + Number(req.days) * 86400000) : '');
+    else if (action === 'admin_release') {
+      const dev = String(req.deviceId || '').trim().toUpperCase();
+      const devices = String(rows[r - 1][4] || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+      sheet.getRange(r, 5).setValue((dev ? devices.filter(d => d !== dev) : []).join(', '));
+    }
+    else if (action === 'admin_delete') sheet.deleteRow(r);
+    else return { ok: false, reason: 'bad_request', nonce };
+    return { ok: true, nonce, licenses: listLicenses(sheet) };
+  } finally { lock.releaseLock(); }
+}
+
+function listLicenses(sheet) {
+  const rows = sheet.getDataRange().getValues();
+  const toMs = v => v instanceof Date ? v.getTime() : (v ? new Date(v).getTime() || 0 : 0);
+  const list = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i]; if (!row[0]) continue;
+    list.push({ key: normalizeKey(row[0]), name: String(row[1] || ''), status: String(row[2] || 'active').toLowerCase(), maxDevices: Number(row[3]) || 1,
+      devices: String(row[4] || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean), expiresAt: toMs(row[5]), activatedAt: toMs(row[6]), lastSeen: toMs(row[7]), note: String(row[8] || '') });
+  }
+  return list;
+}

@@ -26,3 +26,11 @@ Key muncul di sheet (format `SESI-XXXX-XXXX-XXXX`) dan di **Execution log**. Bis
 ## Protokol
 `POST {action: activate|verify|deactivate, key, deviceId, nonce, note}` → `{ok, status, name, expiresAt, graceUntil, devices, maxDevices, serverTime, deviceId, nonce}` atau `{ok:false, reason: not_found|revoked|expired|device_limit|device_mismatch|bad_request|server_setup}`.
 Aplikasi hanya mempercayai respons HTTPS dari URL yang dikonfigurasi (Android 7+ tidak mempercayai CA buatan pengguna), menyimpan hasil dengan HMAC lokal, dan memverifikasi ulang setiap kali dibuka (min. tiap 6 jam). Tanpa internet, aktivasi tersimpan berlaku sampai `graceUntil` (3 hari), lalu wajib online lagi.
+
+## APK SESI Admin (generate / cabut / monitoring dari HP)
+1. Tempel `Code.gs` versi terbaru ke editor (menimpa yang lama), simpan.
+2. Pilih fungsi **`setupAdmin`** → Run. Token admin (`ADM-XXXXXX-XXXXXX-XXXXXX`) tercetak di **Execution log**; token disimpan di Script Properties, bukan di kode.
+3. **Deploy → Manage deployments → ✏ → Version: New version → Deploy** (URL tidak berubah).
+4. Install `dist/SesiAdmin-x.y.z.apk` → masukkan token → Masuk.
+
+Fitur: buat key (jumlah, max perangkat, masa berlaku, label), nonaktifkan/aktifkan, lepas perangkat, ubah nama/max/expiry, hapus, salin/kirim key via WA, monitoring (total, aktif, HP terdaftar, online 24 jam, mati) dengan filter & pencarian. Token bocor → jalankan `resetAdminToken()`.

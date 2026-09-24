@@ -31,6 +31,9 @@ APK yang memuat dola.com di WebView dengan dashboard unduhan. Request Dola tidak
 - Aktivasi tersimpan lokal dengan HMAC (ANDROID_ID + package + Device ID) dan berlaku sampai `graceUntil` (3 hari) tanpa internet; aplikasi memverifikasi ulang tiap dibuka (min. 6 jam). Dola tidak dimuat, download/inject/toggle diblokir, sampai lisensi valid.
 - URL server diisi di `res/values/strings.xml` → `license_url`; untuk uji tanpa build, tekan lama judul layar aktivasi lalu tempel URL.
 
+## SESI Admin (modul `admin/`)
+APK terpisah (`com.introvertdreams.sesiadmin`) untuk mengelola lisensi dari HP lewat endpoint `admin_*` di server (token admin di Script Properties). Lihat `server/README.md`.
+
 ## Build
 ```
 export ANDROID_HOME=/path/sdk
