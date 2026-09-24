@@ -43,11 +43,23 @@ public class LicenseGate {
 
     LicenseGate(MainActivity a) { this.a = a; this.p = a.prefs; }
 
+    /** Stable per-device ID derived from ANDROID_ID (constant per device + signing key across reinstalls). */
     String deviceId() {
         String id = p.getString("sesiDeviceId", "");
-        if (id.matches("[2-9A-HJ-NP-Z]{6}")) return id;
-        StringBuilder sb = new StringBuilder(); for (int i = 0; i < 6; i++) sb.append(ALPHA.charAt(RND.nextInt(ALPHA.length())));
-        id = sb.toString(); p.edit().putString("sesiDeviceId", id).apply(); return id;
+        if (id.matches("[2-9A-HJ-NP-Z]{6}") && p.getBoolean("sesiDeviceIdStable", false)) return id;
+        String base = Settings.Secure.getString(a.getContentResolver(), Settings.Secure.ANDROID_ID);
+        if (base == null || base.length() < 8 || "9774d56d682e549c".equals(base)) {
+            // Emulators/odd ROMs without a usable ANDROID_ID: keep the random one.
+            if (!id.matches("[2-9A-HJ-NP-Z]{6}")) { StringBuilder sb = new StringBuilder(); for (int i = 0; i < 6; i++) sb.append(ALPHA.charAt(RND.nextInt(ALPHA.length()))); id = sb.toString(); p.edit().putString("sesiDeviceId", id).apply(); }
+            return id;
+        }
+        try {
+            byte[] h = MessageDigest.getInstance("SHA-256").digest((base + "|" + a.getPackageName() + "|sesi-mini").getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(); for (int i = 0; i < 6; i++) sb.append(ALPHA.charAt((h[i] & 0xFF) % ALPHA.length()));
+            id = sb.toString();
+        } catch (Exception e) { return id.isEmpty() ? "AAAAAA".replace('A', ALPHA.charAt(0)) : id; }
+        p.edit().putString("sesiDeviceId", id).putBoolean("sesiDeviceIdStable", true).apply();
+        return id;
     }
     String serverUrl() { String u = p.getString("lic.url", ""); if (!u.isEmpty()) return u; return a.getString(R.string.license_url); }
     String savedKey() { return p.getString("lic.key", ""); }
