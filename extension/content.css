@@ -1,0 +1,8 @@
+#sesi-dock{position:fixed;left:6px;top:50%;transform:translateY(-50%);z-index:2147483000;display:flex;flex-direction:column;gap:8px;font-family:system-ui,sans-serif}
+#sesi-dock button,#sesi-dash-btn{width:34px;height:34px;border-radius:999px;border:1px solid rgba(255,255,255,.16);background:rgba(26,26,31,.8);color:#d9b47a;font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;opacity:.8;backdrop-filter:blur(6px)}
+#sesi-dock button[data-on="true"]{color:#7dcf8f;opacity:.95}
+#sesi-dock button[data-lock="true"]{color:#8a8a90}
+#sesi-dash-btn{position:fixed;right:6px;top:50%;transform:translateY(-50%);z-index:2147483000;width:36px;height:36px;opacity:.9;background-image:url("__ICON__");background-size:26px 26px;background-repeat:no-repeat;background-position:center}
+#sesi-overlay{position:fixed;inset:0;z-index:2147483001;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center}
+#sesi-overlay iframe{width:100%;max-width:560px;height:min(92vh,900px);border:0;border-radius:18px 18px 0 0;background:#1a1a1f}
+#sesi-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:2147483002;background:#24242b;color:#f4f4f5;padding:10px 16px;border-radius:12px;font:13px system-ui,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.4);max-width:90vw}

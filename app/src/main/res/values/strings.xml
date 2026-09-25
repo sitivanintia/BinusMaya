@@ -1,0 +1,4 @@
+<resources>
+    <!-- Web app URL dari Apps Script (…/exec). Kosong = pakai URL yang diisi di layar lisensi. -->
+    <string name="license_url" translatable="false">https://script.google.com/macros/s/AKfycbz71kYSLnl3Gwxnm5S3g1dPN5u8m19RRjniHrxlWkTUlF_NV8sF43nKbnYAtFA1NOU3oQ/exec</string>
+</resources>

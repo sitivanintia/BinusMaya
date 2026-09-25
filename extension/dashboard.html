@@ -1,0 +1,57 @@
+<!DOCTYPE html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SESI MINI</title><link rel="stylesheet" href="dashboard.css"></head>
+<body>
+<header><img src="icons/48.png" alt=""><div><h1>SESI MINI</h1><small>Introvert Dreams · Dola companion</small></div><span id="pill" class="pill">…</span><button id="close" class="icon" title="Tutup" hidden>✕</button></header>
+
+<section id="gate" hidden>
+  <h2>Aktivasi SESI MINI</h2>
+  <p class="muted">Masukkan license key. Key diverifikasi online dan terikat ke Device ID browser ini.</p>
+  <div class="row"><div><small class="muted">DEVICE ID</small><div id="deviceId" class="devid">—</div></div><button id="copyId" class="btn">Salin</button></div>
+  <input id="keyInput" placeholder="SESI-XXXX-XXXX-XXXX" autocapitalize="characters" spellcheck="false">
+  <p id="gateMsg" class="msg"></p>
+  <button id="activate" class="btn primary wide">Aktivasi</button>
+  <p class="muted center"><a id="wa" href="#" target="_blank">Belum punya key? Hubungi Whempy &amp; Dhon (WhatsApp)</a></p>
+  <p class="muted center tiny"><a id="setServer" href="#">Atur URL server</a></p>
+</section>
+
+<main id="app" hidden>
+  <div class="counters"><div class="card c"><b id="nFound">0</b><small>Found</small></div><div class="card c"><b id="nSaved">0</b><small>Saved</small></div></div>
+  <div class="row gap"><button id="scan" class="btn primary grow">Scan chat</button><button id="tabAccounts" class="btn grow">Akun</button></div>
+  <p id="hint" class="muted tiny"></p>
+
+  <h3>Kontrol</h3>
+  <div class="card list" id="controls">
+    <label class="item"><span>💉 Lampirkan skill MD <small id="mdName" class="muted"></small></span><button id="md" class="btn sm">Aktifkan</button></label>
+    <label class="item"><span>⚡ Auto prompt · paksa 1 video × 30 detik</span><input type="checkbox" id="ap" class="sw"></label>
+    <label class="item"><span>🖼 Image referensi (karakter animasi)</span><input type="checkbox" id="img" class="sw"></label>
+  </div>
+
+  <h3>Video siap download</h3>
+  <div class="card list" id="videos"></div>
+
+  <h3>Lisensi</h3>
+  <div class="card list">
+    <div class="item"><span>Device ID</span><b id="licId">—</b></div>
+    <div class="item"><span>Status</span><span id="licStatus" class="muted">—</span></div>
+    <div class="item"><button id="verify" class="btn sm grow">Verifikasi ulang</button></div>
+  </div>
+
+  <h3>Update sistem</h3>
+  <div class="card list" id="updates"></div>
+  <p id="updHint" class="muted tiny pad"></p>
+  <div class="pad"><button id="checkUpdates" class="btn primary wide">Cek &amp; update</button></div>
+
+  <h3>Developer</h3>
+  <div class="card list"><a class="item link" href="https://wa.me/628889841098" target="_blank"><span>Whempy &amp; Dhon – Introvert Dreams<br><small class="muted">+62 888-984-1098 · WhatsApp</small></span><span>›</span></a></div>
+  <p class="muted tiny center" id="ver"></p>
+</main>
+
+<section id="accounts" hidden>
+  <div class="row"><button id="backMain" class="btn sm">‹ Kembali</button><h2 class="grow">Sesi Akun</h2></div>
+  <p class="muted tiny">Simpan login Dola per akun (cookies + penyimpanan situs) dan ganti akun tanpa login ulang.</p>
+  <div class="row gap"><button id="saveSession" class="btn primary grow">Simpan sesi ini</button><button id="freshSession" class="btn grow">Akun baru</button></div>
+  <h3>Tersimpan</h3>
+  <div id="accList"></div>
+  <p class="muted tiny">Sesi disimpan lokal di browser ini. Situs bisa mencabut sesi lama kapan saja; jika itu terjadi, login ulang lalu simpan lagi.</p>
+</section>
+<script src="dashboard.js"></script>
+</body></html>
