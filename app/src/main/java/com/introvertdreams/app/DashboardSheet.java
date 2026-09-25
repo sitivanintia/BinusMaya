@@ -53,7 +53,14 @@ public class DashboardSheet {
         Button acct = btn(a, "Akun", false); LinearLayout.LayoutParams s2 = weight(); s2.leftMargin = dp(sv, 4); actions.addView(acct, s2);
         root.addView(actions, mt(sv, 12));
         acct.setOnClickListener(v -> { d.dismiss(); AccountsSheet.show(a); });
-        if (dev) { Button agentBtn = btn(a, "🤖 AI Agent", false); root.addView(agentBtn, mt(sv, 8)); agentBtn.setOnClickListener(v -> { d.dismiss(); Edition.openAgent(a); }); }
+        if (dev) {
+            LinearLayout devRow = row(a);
+            Button diag = btn(a, "🩺 Diagnosa sekarang", true); LinearLayout.LayoutParams d1 = weight(); d1.rightMargin = dp(sv, 4); devRow.addView(diag, d1);
+            Button agentBtn = btn(a, "🤖 AI Agent", false); LinearLayout.LayoutParams d2 = weight(); d2.leftMargin = dp(sv, 4); devRow.addView(agentBtn, d2);
+            root.addView(devRow, mt(sv, 8));
+            diag.setOnClickListener(v -> { d.dismiss(); Edition.diagnose(a); });
+            agentBtn.setOnClickListener(v -> { d.dismiss(); Edition.openAgent(a); });
+        }
         TextView hint = tv(a, "", 12, TEXT2, false); root.addView(hint);
 
         // video list

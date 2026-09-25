@@ -8,7 +8,7 @@
  * Deploy: Deploy → New deployment → Web app → Execute as: Me · Who has access: Anyone.
  * Jalankan setupSheet() sekali dari editor, lalu generateKeys(...) untuk membuat key.
  */
-const CODE_VERSION = 5; // dikembalikan oleh action=version untuk memastikan kode yang ter-deploy lengkap
+const CODE_VERSION = 6; // dikembalikan oleh action=version untuk memastikan kode yang ter-deploy lengkap
 
 /** ► JALANKAN INI SEKALI setelah menempel: pilih fungsi "setup" → Run. Menyetujui izin Sheet + Drive,
  *  membuat sheet Licenses, membuat/menampilkan token admin, dan memastikan seluruh file tertempel utuh. */
@@ -317,7 +317,7 @@ const AGENT_TOOLS = [
 ];
 const AGENT_SYSTEM = 'Kamu adalah AI Agent developer untuk SESI MINI (aplikasi Android + extension pendamping Dola/Doubao: pendeteksi video HD tanpa watermark, auto prompt Seedance 2.5 / 30 detik, System MD yang dilampirkan ke chat). '
   + 'Tugasmu: menyesuaikan System MD dan skrip JS saat perilaku Dola berubah, berdasarkan permintaan admin dan laporan diagnostik. Alur kerja: (1) baca laporan (get_reports) dan aset terkait (read_asset), (2) analisis akar masalah, (3) buat perubahan MINIMAL dan aman, (4) untuk JS jalankan syntax_check, (5) simpan dengan write_draft berisi FILE LENGKAP, (6) jelaskan singkat apa yang berubah dan risiko. '
-  + 'Jangan pernah mengubah perilaku yang tidak diminta, jangan menghapus fitur, jangan menaruh secret. Skrip berjalan di document_start pada halaman dola.com (MAIN world), boleh memakai window.IDBridge?.onVideo(json), window.IDBridge?.onReport(json). Balas dalam Bahasa Indonesia.';
+  + 'Jangan pernah mengubah perilaku yang tidak diminta, jangan menghapus fitur, jangan menaruh secret. Skrip berjalan di document_start pada halaman dola.com (MAIN world), boleh memakai window.IDBridge?.onVideo(json), window.IDBridge?.onReport(json). Format balasan SELALU: **Masalah** (1 kalimat) · **Penyebab** · **Yang harus dilakukan** (langkah konkret untuk developer) · **Tindakan agent** (draft yang dibuat / tidak ada). Bila konteks real-time menunjukkan semuanya normal, katakan normal dan sebutkan hal yang perlu dipantau. Balas dalam Bahasa Indonesia, ringkas.';
 
 function runTool(name, args) {
   switch (name) {
@@ -330,9 +330,13 @@ function runTool(name, args) {
     default: throw new Error('tool tidak dikenal: ' + name);
   }
 }
-function agentChat(messages) {
+function agentChat(messages, context) {
   const c = aiProps(); if (!c.model) throw new Error('model belum dipilih');
-  const msgs = [{ role: 'system', content: AGENT_SYSTEM }].concat(messages); const events = []; const started = Date.now();
+  const msgs = [{ role: 'system', content: AGENT_SYSTEM }];
+  // Real-time snapshot from the developer app (URL, component versions, collector stats, recent events).
+  if (context) msgs.push({ role: 'system', content: 'KONTEKS REAL-TIME dari aplikasi developer (JSON). Gunakan ini sebagai sumber utama diagnosis; laporan historis ada di get_reports.\n' + String(context).slice(0, 30000) });
+  for (const m of messages) msgs.push(m);
+  const events = []; const started = Date.now();
   for (let step = 0; step < 8; step++) {
     if (Date.now() - started > 270000) { events.push({ type: 'note', text: 'Batas waktu server; kirim "lanjutkan" untuk meneruskan.' }); break; }
     const r = aiFetch('/chat/completions', { model: c.model, messages: msgs, tools: AGENT_TOOLS, tool_choice: 'auto', temperature: 0.2 });
@@ -362,7 +366,7 @@ function agentAdmin(action, req) {
       const c = aiProps(); return { ok: true, baseUrl: c.baseUrl, model: c.model, hasKey: !!c.apiKey };
     }
     if (action === 'admin_ai_models') { const r = aiFetch('/models'); const ids = (r.data || r.models || []).map(m => m.id || m.name).filter(Boolean).sort(); return { ok: true, models: ids }; }
-    if (action === 'admin_agent') { const r = agentChat(Array.isArray(req.messages) ? req.messages : []); return Object.assign({ ok: true }, r); }
+    if (action === 'admin_agent') { const r = agentChat(Array.isArray(req.messages) ? req.messages : [], req.context ? (typeof req.context === 'string' ? req.context : JSON.stringify(req.context)) : ''); return Object.assign({ ok: true }, r); }
     if (action === 'admin_reports') return { ok: true, reports: listReports(Number(req.limit) || 100) };
     if (action === 'admin_drafts') return { ok: true, drafts: listDrafts() };
     if (action === 'admin_draft_get') { const f = DriveApp.getFileById(String(req.fileId)); const id = ASSET_IDS.find(k => f.getName().startsWith(ASSET_FILES[k][0])); const cur = id ? latestAsset(id) : null; return { ok: true, name: f.getName(), content: f.getBlob().getDataAsString('UTF-8'), note: f.getDescription() || '', current: cur ? { version: cur.version, filename: cur.filename, content: cur.content } : null }; }

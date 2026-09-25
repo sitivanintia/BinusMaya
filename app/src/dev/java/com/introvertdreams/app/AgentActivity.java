@@ -1,5 +1,6 @@
 package com.introvertdreams.app;
 
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -33,6 +34,8 @@ public class AgentActivity extends AppCompatActivity {
     SharedPreferences prefs;
     LinearLayout chat, drafts, reports; ScrollView chatScroll; EditText input; Button send; TextView modelLabel, status;
     JSONArray messages = new JSONArray(); int tab = 0; LinearLayout[] panes = new LinearLayout[3]; TextView[] tabs = new TextView[3];
+    // Real-time: pending context snapshot for the next turn, live event queue, live switch.
+    static volatile AgentActivity live; String pendingContext; final JSONArray liveQueue = new JSONArray(); boolean liveOn, busy; TextView liveBtn; final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
 
     String url() { String u = prefs.getString("url", ""); return u.isEmpty() ? getString(R.string.license_url) : u; }
     String token() { return prefs.getString("token", ""); }
@@ -43,7 +46,8 @@ public class AgentActivity extends AppCompatActivity {
         prefs = getSharedPreferences("admin", MODE_PRIVATE);
         try { messages = new JSONArray(prefs.getString("agentMessages", "[]")); } catch (Exception e) { messages = new JSONArray(); }
         build();
-        if (token().isEmpty()) askToken(); else { loadConfig(); renderChat(); loadDrafts(); loadReports(); }
+        liveOn = prefs.getBoolean("agentLive", true); paintLive();
+        if (token().isEmpty()) askToken(); else { loadConfig(); renderChat(); loadDrafts(); loadReports(); handleIntent(getIntent()); }
     }
 
     void build() {
@@ -53,7 +57,9 @@ public class AgentActivity extends AppCompatActivity {
         LinearLayout tcol = new LinearLayout(this); tcol.setOrientation(LinearLayout.VERTICAL); tcol.setPadding(dp(10), 0, 0, 0);
         TextView ttl = tv("AI Agent", 20, TEXT, true); ttl.setOnLongClickListener(v -> { prefs.edit().remove("token").apply(); askToken(); return true; }); tcol.addView(ttl); modelLabel = tv("model belum dipilih", 11, TEXT2, false); tcol.addView(modelLabel);
         hdr.addView(tcol, weight());
-        Button cfg = btn("⚙ Provider", false); cfg.setOnClickListener(v -> showConfig()); hdr.addView(cfg);
+        liveBtn = tv("● Live", 12, GREEN, true); liveBtn.setPadding(dp(12), dp(8), dp(12), dp(8)); liveBtn.setOnClickListener(v -> { liveOn = !liveOn; prefs.edit().putBoolean("agentLive", liveOn).apply(); paintLive(); toast(liveOn ? "Live aktif: kejadian dari aplikasi dianalisis otomatis" : "Live nonaktif"); });
+        LinearLayout.LayoutParams ll2 = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); ll2.rightMargin = dp(6); hdr.addView(liveBtn, ll2);
+        Button cfg = btn("⚙", false); cfg.setOnClickListener(v -> showConfig()); hdr.addView(cfg);
         root.addView(hdr);
         LinearLayout tabRow = row(); tabRow.setPadding(dp(12), dp(4), dp(12), dp(6));
         String[] names = { "Chat", "Draft", "Diagnostik" };
@@ -95,6 +101,34 @@ public class AgentActivity extends AppCompatActivity {
         setContentView(root); showTab(0);
     }
     void showTab(int i) { tab = i; for (int k = 0; k < 3; k++) { panes[k].setVisibility(k == i ? View.VISIBLE : View.GONE); tabs[k].setBackground(pill(k == i ? SILVER : CARD)); tabs[k].setTextColor(k == i ? BG : TEXT2); } }
+
+    @Override protected void onNewIntent(Intent i) { super.onNewIntent(i); setIntent(i); handleIntent(i); }
+    @Override protected void onResume() { super.onResume(); live = this; }
+    @Override protected void onPause() { super.onPause(); if (live == this) live = null; }
+    void handleIntent(Intent i) {
+        if (i == null || token().isEmpty()) return;
+        String ctx = i.getStringExtra("context"), prompt = i.getStringExtra("prompt"); i.removeExtra("context"); i.removeExtra("prompt");
+        if (ctx != null) pendingContext = ctx;
+        if (prompt != null && !prompt.isEmpty()) { input.setText(prompt); sendMessage(); }
+    }
+    /** Live mode: events from the running app arrive here and are analysed automatically (debounced, one turn at a time). */
+    void onLiveEvent(JSONObject e) {
+        if (!liveOn || token().isEmpty()) return;
+        liveQueue.put(e); status.setTextColor(TEXT2); status.setText("Live: " + liveQueue.length() + " kejadian baru — menganalisis…");
+        h.removeCallbacks(flushLive); h.postDelayed(flushLive, 6000);
+    }
+    final Runnable flushLive = new Runnable() { public void run() {
+        if (busy) { h.postDelayed(this, 4000); return; }
+        if (liveQueue.length() == 0) return;
+        StringBuilder sb = new StringBuilder("Kejadian real-time baru dari aplikasi:\n");
+        for (int i = 0; i < liveQueue.length(); i++) { JSONObject e = liveQueue.optJSONObject(i); if (e != null) sb.append("- ").append(e.optString("component")).append(" → ").append(e.optString("event")).append(": ").append(e.optString("detail")).append("\n"); }
+        sb.append("Jelaskan masalahnya, penyebab, dan apa yang harus saya lakukan. Buat draft bila perlu perubahan MD/skrip.");
+        while (liveQueue.length() > 0) liveQueue.remove(0);
+        MainActivity host = MainActivity.instance;
+        if (host != null) host.snapshot(snap -> { pendingContext = snap.toString(); input.setText(sb.toString()); sendMessage(); });
+        else { input.setText(sb.toString()); sendMessage(); }
+    } };
+    void paintLive() { if (liveBtn == null) return; liveBtn.setText(liveOn ? "● Live" : "○ Live"); liveBtn.setTextColor(liveOn ? GREEN : TEXT2); liveBtn.setBackground(pill(liveOn ? 0xFF2E3A33 : CARD)); }
 
     /** Developer edition talks to the same Apps Script server with the admin token (from setup() in Apps Script). */
     void askToken() {
@@ -155,12 +189,12 @@ public class AgentActivity extends AppCompatActivity {
     void sendMessage() {
         String text = input.getText().toString().trim(); if (text.isEmpty()) return;
         try { messages.put(new JSONObject().put("role", "user").put("content", text)); } catch (Exception ignored) {}
-        input.setText(""); renderChat(); send.setEnabled(false); status.setText("Agent bekerja… (bisa 1–3 menit bila membaca/menulis skrip besar)");
+        input.setText(""); renderChat(); send.setEnabled(false); busy = true; status.setTextColor(TEXT2); status.setText("Agent bekerja… (bisa 1–3 menit bila membaca/menulis skrip besar)");
         // Keep the transcript bounded: tool payloads are large, so only the last 14 messages travel with each turn.
         JSONArray window = new JSONArray(); int start = Math.max(0, messages.length() - 14); for (int i = start; i < messages.length(); i++) window.put(messages.opt(i));
-        JSONObject p = new JSONObject(); try { p.put("messages", window); } catch (Exception ignored) {}
+        JSONObject p = new JSONObject(); try { p.put("messages", window); if (pendingContext != null) { p.put("context", pendingContext); pendingContext = null; } } catch (Exception ignored) {}
         Api.call(url(), token(), "admin_agent", p, (r, err) -> {
-            send.setEnabled(true);
+            send.setEnabled(true); busy = false;
             if (err != null) { status.setText(err); status.setTextColor(ORANGE); try { messages.put(new JSONObject().put("role", "assistant").put("content", "⚠ " + err)); } catch (Exception ignored) {} renderChat(); if (err.contains("ai_not_configured") || err.contains("belum")) showConfig(); return; }
             status.setTextColor(TEXT2); status.setText("Selesai");
             JSONArray msgs = r.optJSONArray("messages"); if (msgs != null) { JSONArray merged = new JSONArray(); for (int i = 0; i < start; i++) merged.put(messages.opt(i)); for (int i = 0; i < msgs.length(); i++) merged.put(msgs.opt(i)); messages = merged; }
@@ -171,7 +205,7 @@ public class AgentActivity extends AppCompatActivity {
     }
     void renderChat() {
         chat.removeAllViews();
-        if (messages.length() == 0) { TextView e = tv("Agent bisa membaca laporan diagnostik dari aplikasi pengguna, membaca System MD & skrip (auto prompt, paksa 30 detik, pendeteksi video), lalu membuat draft perbaikan. Draft hanya aktif setelah kamu Terapkan.", 13, TEXT2, false); e.setPadding(dp(8), dp(20), dp(8), 0); chat.addView(e); }
+        if (messages.length() == 0) { TextView e = tv("Mode Live: saat aplikasi mendeteksi masalah (deteksi video gagal, download gagal, skrip error), agent otomatis menerima kejadian + snapshot keadaan dan menjawab: masalah, penyebab, yang harus dilakukan. Kamu juga bisa tekan “Diagnosa sekarang” di dashboard. Draft perbaikan hanya aktif setelah kamu Terapkan.", 13, TEXT2, false); e.setPadding(dp(8), dp(20), dp(8), 0); chat.addView(e); }
         for (int i = 0; i < messages.length(); i++) {
             JSONObject m = messages.optJSONObject(i); if (m == null) continue; String role = m.optString("role");
             if (role.equals("tool")) continue;

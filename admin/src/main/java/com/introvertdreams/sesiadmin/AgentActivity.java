@@ -155,7 +155,7 @@ public class AgentActivity extends AppCompatActivity {
     }
     void renderChat() {
         chat.removeAllViews();
-        if (messages.length() == 0) { TextView e = tv("Agent bisa membaca laporan diagnostik dari aplikasi pengguna, membaca System MD & skrip (auto prompt, paksa 30 detik, pendeteksi video), lalu membuat draft perbaikan. Draft hanya aktif setelah kamu Terapkan.", 13, TEXT2, false); e.setPadding(dp(8), dp(20), dp(8), 0); chat.addView(e); }
+        if (messages.length() == 0) { TextView e = tv("Agent membaca laporan diagnostik & skrip (auto prompt, paksa 30 detik, pendeteksi video) lalu membuat draft perbaikan. Untuk analisis real-time saat memakai Dola, gunakan SESI MINI Dev (mode Live). Draft hanya aktif setelah kamu Terapkan.", 13, TEXT2, false); e.setPadding(dp(8), dp(20), dp(8), 0); chat.addView(e); }
         for (int i = 0; i < messages.length(); i++) {
             JSONObject m = messages.optJSONObject(i); if (m == null) continue; String role = m.optString("role");
             if (role.equals("tool")) continue;

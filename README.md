@@ -34,6 +34,11 @@ APK yang memuat dola.com di WebView dengan dashboard unduhan. Request Dola tidak
 ## Update sistem OTA (v1.10.1)
 Dashboard → **Update sistem**: server membaca satu folder Google Drive (`action=updates`) dan memilih file berversi tertinggi per komponen dari nama file (`Introvert-Dreams-SKILL-v6.md`, `auto-prompt-v2.js`, `single-clip-enforcer-v2.js`, `inject-v2.js`); isi file dikirim server (`action=update_file`) sehingga folder boleh privat. Salinan OTA di `files/updates/` dipakai oleh `readAsset()` dan lampiran MD. Lihat `server/README.md`.
 
+## Agent real-time (v1.13.0, edisi dev)
+- Setiap kejadian diagnostik (deteksi/decode gagal, download gagal, auto prompt not ready, console error skrip) masuk buffer lokal dan memicu `Edition.onEvent`: bila layar Agent terbuka dengan **Live** aktif, kejadian dikirim otomatis (debounce 6 dtk, satu giliran sekaligus) bersama `snapshot()`; bila tidak, muncul banner “⚠ komponen: event · Tanya agent ›” di atas WebView.
+- `MainActivity.snapshot()` mengumpulkan URL, versi komponen, toggle, video/downloads, statistik collector (`__idreamsStats`), status auto-prompt/enforcer, dan 30 kejadian terakhir → dikirim sebagai `context` ke `admin_agent`; server menyuntikkannya sebagai pesan sistem “KONTEKS REAL-TIME”. Format jawaban agent: Masalah · Penyebab · Yang harus dilakukan · Tindakan agent.
+- Dashboard dev: **🩺 Diagnosa sekarang** mengirim snapshot + pertanyaan diagnosis.
+
 ## Edisi (v1.12.0)
 - **user** (`SesiMini-x.y.z.apk`, id `com.introvertdreams.app`): untuk pengguna — gate lisensi online, tanpa agent, tanpa diagnostik.
 - **dev** (`SesiMini-Dev-x.y.z.apk`, id `com.introvertdreams.app.dev`, nama "SESI MINI Dev"): untuk developer — **tanpa gate lisensi**, aplikasi pengguna utuh + tombol **🤖 AI Agent** di dashboard (login token admin), diagnostik selalu dikirim dari HP ini. Bisa terpasang berdampingan dengan edisi user.

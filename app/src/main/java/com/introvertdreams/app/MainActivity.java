@@ -50,6 +50,7 @@ import java.util.Set;
 
 public class MainActivity extends AppCompatActivity {
     static final String HOME = "https://www.dola.com/";
+    static volatile MainActivity instance;
     WebView web; ProgressBar progress; SharedPreferences prefs;
     ImageView activate, autoPrompt, imageRef;
     static final String AUTO_PROMPT_KEY = "sesiAutoPromptActivated", IMAGE_NOTE_KEY = "sesiImageNoteActivated";
@@ -65,6 +66,7 @@ public class MainActivity extends AppCompatActivity {
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        instance = this;
         setContentView(R.layout.activity_main);
         prefs = getSharedPreferences("id", MODE_PRIVATE);
         updates = new UpdateManager(this);
@@ -113,6 +115,14 @@ public class MainActivity extends AppCompatActivity {
         });
         web.setWebChromeClient(new WebChromeClient() {
             @Override public void onProgressChanged(WebView v, int p) { progress.setProgress(p); }
+            @Override public boolean onConsoleMessage(android.webkit.ConsoleMessage m) {
+                if (BuildConfig.DEV_EDITION && m.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR && isSite(web.getUrl())) {
+                    String msg = m.message() == null ? "" : m.message();
+                    // Only our own scripts' failures matter to the agent; skip the site's noisy errors.
+                    if (msg.contains("sesi") || msg.contains("idreams") || msg.contains("Whempy") || msg.contains("__") || (m.sourceId() != null && m.sourceId().isEmpty())) report("page", "console_error", msg + " @" + m.sourceId() + ":" + m.lineNumber());
+                }
+                return false;
+            }
             // Without this, <input type=file> silently does nothing in a WebView (no image/file upload in Dola).
             @Override public boolean onShowFileChooser(WebView v, ValueCallback<Uri[]> cb, FileChooserParams params) {
                 if (filePathCallback != null) filePathCallback.onReceiveValue(null);
@@ -147,8 +157,12 @@ public class MainActivity extends AppCompatActivity {
 
     /** Anonymous diagnostics for the developer agent (component/event/detail only; rate-limited, deduped per session). */
     final java.util.Set<String> reportedKeys = Collections.synchronizedSet(new java.util.HashSet<>());
+    /** Recent events kept locally for the real-time agent snapshot (dev edition). */
+    final java.util.LinkedList<JSONObject> recentEvents = new java.util.LinkedList<>();
     void report(String component, String event, String detail) {
-        if (license == null || license.serverUrl().isEmpty() || !(BuildConfig.DEV_EDITION || prefs.getBoolean("diag", false))) return; // dev edition always reports; user edition never
+        if (!(BuildConfig.DEV_EDITION || prefs.getBoolean("diag", false))) return; // dev edition always reports; user edition never
+        try { JSONObject e = new JSONObject().put("t", System.currentTimeMillis()).put("component", component).put("event", event).put("detail", detail == null ? "" : detail.substring(0, Math.min(1500, detail.length()))).put("url", web.getUrl()); synchronized (recentEvents) { recentEvents.addFirst(e); while (recentEvents.size() > 30) recentEvents.removeLast(); } Edition.onEvent(this, e); } catch (Exception ignored) {}
+        if (license == null || license.serverUrl().isEmpty()) return;
         String key = component + "|" + event + "|" + (detail == null ? "" : detail.substring(0, Math.min(60, detail.length())));
         if (reportedKeys.size() > 40 || !reportedKeys.add(key)) return;
         new Thread(() -> {
@@ -479,6 +493,26 @@ public class MainActivity extends AppCompatActivity {
         videos.put(key, v);
     }
 
+    /** Real-time state for the agent: page, component versions, collector stats, auto-prompt/enforcer status, recent events. */
+    void snapshot(ValueCallback<JSONObject> done) {
+        JSONObject o = new JSONObject();
+        try {
+            String ver; try { ver = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception e) { ver = "?"; }
+            o.put("app", "SesiMini " + ver + " · Android " + Build.VERSION.RELEASE).put("time", new java.util.Date().toString()).put("url", web.getUrl()).put("onDola", isSite(web.getUrl()));
+            o.put("versions", new JSONObject().put("skill_md", updates.version("skill_md")).put("auto_prompt", updates.version("auto_prompt")).put("enforcer", updates.version("enforcer")).put("collector", updates.version("collector")));
+            o.put("toggles", new JSONObject().put("autoPrompt", prefs.getBoolean(AUTO_PROMPT_KEY, false)).put("imageNote", prefs.getBoolean(IMAGE_NOTE_KEY, false)).put("mdArmed", activate.isSelected()));
+            JSONArray vids = new JSONArray(); synchronized (videos) { for (JSONObject v : videos.values()) vids.put(new JSONObject().put("name", v.optString("name")).put("w", v.optInt("width")).put("h", v.optInt("height")).put("source", v.optString("source")).put("host", Uri.parse(v.optString("url")).getHost())); }
+            o.put("videosFound", vids.length()).put("videos", vids);
+            JSONArray dl = new JSONArray(); for (Map.Entry<String, String> e : downloadStates().entrySet()) dl.put(new JSONObject().put("host", Uri.parse(e.getKey()).getHost()).put("state", e.getValue())); o.put("downloads", dl);
+            JSONArray ev = new JSONArray(); synchronized (recentEvents) { for (JSONObject e : recentEvents) ev.put(e); } o.put("recentEvents", ev);
+        } catch (Exception ignored) {}
+        if (!isSite(web.getUrl())) { done.onReceiveValue(o); return; }
+        web.evaluateJavascript("(()=>{try{const a=window.__sesiAutoPrompt,e=window.__whempySingleClip;return JSON.stringify({collector:window.__idreamsStats?window.__idreamsStats():'missing',autoPrompt:a?a.status():'missing',enforcer:e?{enabled:e.cfg.enabled,duration:e.cfg.duration,forceModel25:e.cfg.forceModel25}:'missing',videoTags:document.querySelectorAll('video').length,composer:!!document.querySelector('textarea,[contenteditable=true]'),title:document.title})}catch(x){return JSON.stringify({error:String(x)})}})()", r -> {
+            try { Object v = new org.json.JSONTokener(r == null ? "null" : r).nextValue(); if (v instanceof String) o.put("page", new JSONObject((String) v)); else if (v instanceof JSONObject) o.put("page", v); } catch (Exception ignored) {}
+            done.onReceiveValue(o);
+        });
+    }
+
     class Bridge {
         @JavascriptInterface public void onAttached() { runOnUiThread(() -> { setActive(false); Toast.makeText(MainActivity.this, "File MD terlampir ke composer.", Toast.LENGTH_SHORT).show(); }); }
         @JavascriptInterface public void onVideo(String json) { try { addVideo(new JSONObject(json)); } catch (Exception ignored) {} }
@@ -504,5 +538,5 @@ public class MainActivity extends AppCompatActivity {
 
     @Override public void onBackPressed() { if (web.canGoBack()) web.goBack(); else super.onBackPressed(); }
     @Override protected void onSaveInstanceState(@NonNull Bundle out) { super.onSaveInstanceState(out); web.saveState(out); }
-    @Override protected void onDestroy() { if (dlReceiver != null) try { unregisterReceiver(dlReceiver); } catch (Exception ignored) {} super.onDestroy(); }
+    @Override protected void onDestroy() { if (instance == this) instance = null; if (dlReceiver != null) try { unregisterReceiver(dlReceiver); } catch (Exception ignored) {} super.onDestroy(); }
 }
