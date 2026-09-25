@@ -67,7 +67,7 @@ public class UpdateManager {
             Map<String, String> out = new LinkedHashMap<>();
             try {
                 JSONObject m = new JSONObject(LicenseGate.post(url, new JSONObject().put("action", "updates").toString()));
-                if (!m.optBoolean("ok")) throw new IllegalStateException("no_folder".equals(m.optString("reason")) ? "folder update belum diatur di server" : "server tidak bisa membaca folder Drive");
+                if (!m.optBoolean("ok")) throw new IllegalStateException("no_folder".equals(m.optString("reason")) ? "folder update belum diatur di server" : "code_incomplete".equals(m.optString("reason")) ? "Code.gs server tidak lengkap" : "server belum diberi izin Drive: Run setup() di Apps Script");
                 JSONArray arr = m.optJSONArray("assets"); if (arr == null) arr = new JSONArray();
                 for (String id : ASSETS.keySet()) {
                     JSONObject e = null; for (int i = 0; i < arr.length(); i++) if (id.equals(arr.getJSONObject(i).optString("id"))) e = arr.getJSONObject(i);

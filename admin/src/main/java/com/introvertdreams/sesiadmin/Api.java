@@ -32,7 +32,9 @@ class Api {
                 r = new JSONObject(post(url, body.toString()));
                 if (!nonce.equals(r.optString("nonce"))) throw new IllegalStateException("nonce");
                 if (!r.optBoolean("ok")) { err = reason(r.optString("reason")); r = null; }
-            } catch (Exception e) { if (err == null) err = "Tidak bisa menghubungi server (" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()) + ")"; }
+            } catch (Exception e) {
+                if (err == null) err = e.getMessage() != null && e.getMessage().contains("DOCTYPE") ? "Server mengembalikan halaman error (kode Apps Script rusak/tidak lengkap). Tempel ulang Code.gs, Run setup(), deploy versi baru." : "Tidak bisa menghubungi server (" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()) + ")";
+            }
             final JSONObject fr = r; final String fe = err;
             UI.post(() -> done.run(fr, fe));
         });
@@ -41,7 +43,8 @@ class Api {
     static String reason(String r) {
         switch (r) {
             case "unauthorized": return "Token admin salah.";
-            case "admin_setup": return "Server belum setup admin: jalankan setupAdmin() di Apps Script.";
+            case "admin_setup": return "Server belum setup admin: jalankan fungsi setup() di Apps Script.";
+            case "code_incomplete": return "Code.gs di server tidak lengkap. Tempel ulang seluruh file lalu Run setup() dan deploy versi baru.";
             case "not_found": return "Key tidak ditemukan.";
             case "bad_request": return "Permintaan tidak valid.";
             default: return "Ditolak: " + r;

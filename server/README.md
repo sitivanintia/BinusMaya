@@ -3,6 +3,8 @@
 Key hanya berlaku setelah diverifikasi ke server ini; tidak ada secret di dalam APK. Key bisa dicabut (Status → `revoked`), diberi masa berlaku, dan dibatasi jumlah perangkat langsung dari spreadsheet.
 
 ## Setup (±5 menit)
+> **Versi 4+:** cukup tempel `Code.gs` utuh (±235 baris), pilih fungsi **`setup`** → Run (setujui izin Sheet+Drive). Log menampilkan token admin, status sheet, dan nama folder update — atau error "KODE TIDAK LENGKAP" bila tempelan terpotong. Lalu Deploy → Manage deployments → ✏ → New version. `action=version` mengembalikan `{version, complete, adminReady, folder}` untuk diagnosis.
+
 1. Buat Google Sheet baru → **Extensions → Apps Script**.
 2. Hapus isi `Code.gs`, tempel isi `server/Code.gs` dari repo ini, **Simpan**.
 3. Di editor pilih fungsi `setupSheet` → **Run** (izinkan akses saat diminta). Sheet `Licenses` dengan header akan dibuat.
