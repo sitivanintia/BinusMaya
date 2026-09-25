@@ -8,12 +8,12 @@
  * Deploy: Deploy → New deployment → Web app → Execute as: Me · Who has access: Anyone.
  * Jalankan setupSheet() sekali dari editor, lalu generateKeys(...) untuk membuat key.
  */
-const CODE_VERSION = 4; // dikembalikan oleh action=version untuk memastikan kode yang ter-deploy lengkap
+const CODE_VERSION = 5; // dikembalikan oleh action=version untuk memastikan kode yang ter-deploy lengkap
 
 /** ► JALANKAN INI SEKALI setelah menempel: pilih fungsi "setup" → Run. Menyetujui izin Sheet + Drive,
  *  membuat sheet Licenses, membuat/menampilkan token admin, dan memastikan seluruh file tertempel utuh. */
 function setup() {
-  const missing = ['handle', 'admin', 'listLicenses', 'setupAdmin', 'updatesManifest', 'updateFile', 'generateKeys'].filter(n => typeof globalThis[n] !== 'function');
+  const missing = ['handle', 'admin', 'listLicenses', 'setupAdmin', 'updatesManifest', 'updateFile', 'generateKeys', 'agentAdmin', 'agentChat', 'storeReport'].filter(n => typeof globalThis[n] !== 'function');
   if (missing.length) throw new Error('KODE TIDAK LENGKAP — fungsi hilang: ' + missing.join(', ') + '. Tempel ulang seluruh isi Code.gs (±200 baris).');
   setupSheet();
   const token = setupAdmin();
@@ -37,7 +37,7 @@ function handle(req) {
   const action = String(req.action || '');
   if (!action) return out.setContent(JSON.stringify({ ok: true, service: 'sesi-license', time: Date.now() }));
   const has = n => typeof globalThis[n] === 'function';
-  if (action === 'version') return out.setContent(JSON.stringify({ ok: true, version: CODE_VERSION, complete: ['admin', 'listLicenses', 'updatesManifest', 'updateFile'].every(has), adminReady: !!PropertiesService.getScriptProperties().getProperty('ADMIN_TOKEN'), folder: folderId() }));
+  if (action === 'version') return out.setContent(JSON.stringify({ ok: true, version: CODE_VERSION, complete: ['admin', 'listLicenses', 'updatesManifest', 'updateFile', 'agentAdmin', 'agentChat', 'storeReport'].every(has), agent: has('agentAdmin'), adminReady: !!PropertiesService.getScriptProperties().getProperty('ADMIN_TOKEN'), folder: folderId() }));
   // Defensive dispatch: a truncated paste yields a clear JSON error instead of an HTML crash page.
   if (action === 'updates') return out.setContent(JSON.stringify(has('updatesManifest') ? updatesManifest() : { ok: false, reason: 'code_incomplete' }));
   if (action === 'update_file') return out.setContent(JSON.stringify(has('updateFile') ? updateFile(req) : { ok: false, reason: 'code_incomplete' }));

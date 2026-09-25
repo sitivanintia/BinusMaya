@@ -112,7 +112,10 @@ public class AgentActivity extends AppCompatActivity {
     @Override public boolean onCreateOptionsMenu(android.view.Menu m) { return false; }
 
     // ---- provider config + model picker ----
-    void loadConfig() { Api.call(url(), token(), "admin_ai_get", null, (r, err) -> { if (r != null) modelLabel.setText(r.optString("baseUrl").isEmpty() ? "provider belum diatur" : (r.optString("model").isEmpty() ? "model belum dipilih" : r.optString("model")) + " · " + r.optString("baseUrl").replaceAll("^https?://", "").replaceAll("/.*$", "")); }); }
+    void loadConfig() {
+        // Old server code (without agent routes) answers admin_ai_* with not_found; detect it once and explain.
+        Api.call(url(), token(), "admin_ai_get", null, (r, err) -> { if (err != null && err.contains("Key tidak ditemukan")) { status.setTextColor(ORANGE); status.setText("Server masih Code.gs lama (tanpa AI Agent). Tempel Code.gs terbaru (±375 baris, CODE_VERSION 5), Run setup, lalu Deploy → Manage deployments → ✏ → New version."); modelLabel.setText("server perlu diperbarui"); return; } if (r != null) modelLabel.setText(r.optString("baseUrl").isEmpty() ? "provider belum diatur" : (r.optString("model").isEmpty() ? "model belum dipilih" : r.optString("model")) + " · " + r.optString("baseUrl").replaceAll("^https?://", "").replaceAll("/.*$", "")); });
+    }
     void showConfig() {
         Api.call(url(), token(), "admin_ai_get", null, (cur, err) -> {
             LinearLayout box = new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL); box.setPadding(dp(20), dp(8), dp(20), 0);
