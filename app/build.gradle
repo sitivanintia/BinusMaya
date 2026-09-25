@@ -2,7 +2,7 @@ plugins { id 'com.android.application' }
 android {
     namespace 'com.introvertdreams.app'
     compileSdk 34
-    defaultConfig { applicationId 'com.introvertdreams.app'; minSdk 24; targetSdk 34; versionCode 23; versionName '1.13.1' }
+    defaultConfig { applicationId 'com.introvertdreams.app'; minSdk 24; targetSdk 34; versionCode 24; versionName '1.13.2' }
     buildTypes { release { minifyEnabled false; signingConfig signingConfigs.debug } }
     flavorDimensions += 'edition'
     productFlavors {

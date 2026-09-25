@@ -161,11 +161,14 @@ public class AgentActivity extends AppCompatActivity {
             final String[] chosen = { cur == null ? "" : cur.optString("model") };
             AlertDialog d = new AlertDialog.Builder(this).setTitle("Provider AI").setView(box).setPositiveButton("Simpan", null).setNegativeButton("Batal", null).create();
             pick.setOnClickListener(v -> {
-                pick.setEnabled(false); pick.setText("Menyimpan & mengambil daftar…");
-                JSONObject p = new JSONObject(); try { p.put("baseUrl", base.getText().toString().trim()); if (!key.getText().toString().trim().isEmpty()) p.put("apiKey", key.getText().toString().trim()); } catch (Exception ignored) {}
-                Api.call(url(), token(), "admin_ai_set", p, (r1, e1) -> Api.call(url(), token(), "admin_ai_models", null, (r2, e2) -> {
+                pick.setEnabled(false);
+                final long t0 = System.currentTimeMillis(); final Runnable[] tick = new Runnable[1];
+                tick[0] = () -> { if (!pick.isEnabled()) { pick.setText("⏳ Menghubungi server… " + (System.currentTimeMillis() - t0) / 1000 + " dtk (Apps Script bisa 5–40 dtk)"); pick.postDelayed(tick[0], 1000); } }; tick[0].run();
+                JSONObject p = new JSONObject(); try { p.put("baseUrl", base.getText().toString().trim()); if (!key.getText().toString().trim().isEmpty()) p.put("apiKey", key.getText().toString().trim()); p.put("withModels", true); } catch (Exception ignored) {}
+                Api.call(url(), token(), "admin_ai_set", p, (r2, e2) -> {
                     pick.setEnabled(true); pick.setText("Ambil daftar model dari provider");
                     if (e2 != null) { toast(e2); return; }
+                    if (r2.has("modelsError")) { toast("Provider: " + r2.optString("modelsError")); return; }
                     JSONArray arr = r2.optJSONArray("models"); if (arr == null || arr.length() == 0) { toast("Provider tidak mengembalikan daftar model"); return; }
                     List<String> ids = new ArrayList<>(); for (int i = 0; i < arr.length(); i++) ids.add(arr.optString(i));
                     EditText filter = new EditText(this); filter.setHint("Cari model…"); filter.setSingleLine();
@@ -175,7 +178,7 @@ public class AgentActivity extends AppCompatActivity {
                     AlertDialog md = new AlertDialog.Builder(this).setTitle(ids.size() + " model tersedia").setView(wrap).setNegativeButton("Batal", null).create();
                     lv.setOnItemClickListener((av, view, pos, id) -> { chosen[0] = ad.getItem(pos); model.setText("Model: " + chosen[0]); md.dismiss(); });
                     md.show();
-                }));
+                });
             });
             d.setOnShowListener(x -> d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 JSONObject p = new JSONObject(); try { p.put("baseUrl", base.getText().toString().trim()); p.put("model", chosen[0]); if (!key.getText().toString().trim().isEmpty()) p.put("apiKey", key.getText().toString().trim()); } catch (Exception ignored) {}
@@ -189,14 +192,16 @@ public class AgentActivity extends AppCompatActivity {
     void sendMessage() {
         String text = input.getText().toString().trim(); if (text.isEmpty()) return;
         try { messages.put(new JSONObject().put("role", "user").put("content", text)); } catch (Exception ignored) {}
-        input.setText(""); renderChat(); send.setEnabled(false); busy = true; status.setTextColor(TEXT2); status.setText("Agent bekerja… (bisa 1–3 menit bila membaca/menulis skrip besar)");
+        input.setText(""); renderChat(); send.setEnabled(false); busy = true; status.setTextColor(TEXT2);
+        final long t0 = System.currentTimeMillis(); final Runnable[] tick = new Runnable[1];
+        tick[0] = () -> { if (busy) { long sec = (System.currentTimeMillis() - t0) / 1000; status.setText((sec < 8 ? "⏳ Menghubungi server Apps Script…" : sec < 40 ? "🤔 Agent berpikir / membaca skrip…" : sec < 120 ? "✍️ Agent menulis (skrip besar bisa 1–3 menit)…" : "⏳ Masih bekerja…") + " " + sec + " dtk"); status.postDelayed(tick[0], 1000); } }; tick[0].run();
         // Keep the transcript bounded: tool payloads are large, so only the last 14 messages travel with each turn.
         JSONArray window = new JSONArray(); int start = Math.max(0, messages.length() - 14); for (int i = start; i < messages.length(); i++) window.put(messages.opt(i));
         JSONObject p = new JSONObject(); try { p.put("messages", window); if (pendingContext != null) { p.put("context", pendingContext); pendingContext = null; } } catch (Exception ignored) {}
         Api.call(url(), token(), "admin_agent", p, (r, err) -> {
             send.setEnabled(true); busy = false;
             if (err != null) { status.setText(err); status.setTextColor(ORANGE); try { messages.put(new JSONObject().put("role", "assistant").put("content", "⚠ " + err)); } catch (Exception ignored) {} renderChat(); if (err.contains("ai_not_configured") || err.contains("belum")) showConfig(); return; }
-            status.setTextColor(TEXT2); status.setText("Selesai");
+            status.setTextColor(TEXT2); status.setText("Selesai dalam " + (System.currentTimeMillis() - t0) / 1000 + " dtk");
             JSONArray msgs = r.optJSONArray("messages"); if (msgs != null) { JSONArray merged = new JSONArray(); for (int i = 0; i < start; i++) merged.put(messages.opt(i)); for (int i = 0; i < msgs.length(); i++) merged.put(msgs.opt(i)); messages = merged; }
             JSONArray ev = r.optJSONArray("events"); boolean draft = false; for (int i = 0; ev != null && i < ev.length(); i++) if (ev.optJSONObject(i) != null && ev.optJSONObject(i).has("draft")) draft = true;
             prefs.edit().putString("agentMessages", messages.toString()).apply(); renderChat();

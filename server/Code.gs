@@ -8,7 +8,7 @@
  * Deploy: Deploy → New deployment → Web app → Execute as: Me · Who has access: Anyone.
  * Jalankan setupSheet() sekali dari editor, lalu generateKeys(...) untuk membuat key.
  */
-const CODE_VERSION = 6; // dikembalikan oleh action=version untuk memastikan kode yang ter-deploy lengkap
+const CODE_VERSION = 7; // dikembalikan oleh action=version untuk memastikan kode yang ter-deploy lengkap
 
 /** ► JALANKAN INI SEKALI setelah menempel: pilih fungsi "setup" → Run. Menyetujui izin Sheet + Drive,
  *  membuat sheet Licenses, membuat/menampilkan token admin, dan memastikan seluruh file tertempel utuh. */
@@ -273,11 +273,18 @@ const BUNDLED_VER = { skill_md: 'v5', auto_prompt: 'v1', enforcer: 'v1', collect
 function aiProps() { const p = PropertiesService.getScriptProperties(); return { baseUrl: (p.getProperty('AI_BASE_URL') || '').replace(/\/+$/, ''), apiKey: p.getProperty('AI_API_KEY') || '', model: p.getProperty('AI_MODEL') || '' }; }
 function aiFetch(path, payload) {
   const c = aiProps(); if (!c.baseUrl || !c.apiKey) throw new Error('ai_not_configured');
-  const opt = { method: payload ? 'post' : 'get', headers: { Authorization: 'Bearer ' + c.apiKey, 'HTTP-Referer': 'https://sesi-mini', 'X-Title': 'SESI MINI Agent' }, muteHttpExceptions: true };
+  const opt = { method: payload ? 'post' : 'get', headers: { Authorization: 'Bearer ' + c.apiKey, 'HTTP-Referer': 'https://sesi-mini', 'X-Title': 'SESI MINI Agent' }, muteHttpExceptions: true, followRedirects: true };
   if (payload) { opt.contentType = 'application/json'; opt.payload = JSON.stringify(payload); }
   const r = UrlFetchApp.fetch(c.baseUrl + path, opt); const code = r.getResponseCode(); const text = r.getContentText();
   if (code < 200 || code >= 300) throw new Error('Provider HTTP ' + code + ': ' + text.slice(0, 300));
   return JSON.parse(text);
+}
+function listModels(refresh) {
+  const cache = CacheService.getScriptCache(); const key = 'ai_models';
+  if (!refresh) { const hit = cache.get(key); if (hit) return JSON.parse(hit); }
+  const r = aiFetch('/models'); const ids = (r.data || r.models || []).map(m => m.id || m.name).filter(Boolean).sort();
+  try { cache.put(key, JSON.stringify(ids), 21600); } catch (_) {}
+  return ids;
 }
 function draftsFolder() { const root = DriveApp.getFolderById(folderId()); const it = root.getFoldersByName('drafts'); return it.hasNext() ? it.next() : root.createFolder('drafts'); }
 function latestAsset(id) {
@@ -360,12 +367,15 @@ function agentAdmin(action, req) {
     const p = PropertiesService.getScriptProperties();
     if (action === 'admin_ai_get') { const c = aiProps(); return { ok: true, baseUrl: c.baseUrl, model: c.model, hasKey: !!c.apiKey }; }
     if (action === 'admin_ai_set') {
-      if (req.baseUrl !== undefined) p.setProperty('AI_BASE_URL', String(req.baseUrl).trim());
-      if (req.apiKey) p.setProperty('AI_API_KEY', String(req.apiKey).trim());
+      if (req.baseUrl !== undefined) { p.setProperty('AI_BASE_URL', String(req.baseUrl).trim()); CacheService.getScriptCache().remove('ai_models'); }
+      if (req.apiKey) { p.setProperty('AI_API_KEY', String(req.apiKey).trim()); CacheService.getScriptCache().remove('ai_models'); }
       if (req.model !== undefined) p.setProperty('AI_MODEL', String(req.model).trim());
-      const c = aiProps(); return { ok: true, baseUrl: c.baseUrl, model: c.model, hasKey: !!c.apiKey };
+      const c = aiProps(); const out = { ok: true, baseUrl: c.baseUrl, model: c.model, hasKey: !!c.apiKey };
+      // One round-trip instead of two: the APK asks for the model list right after saving credentials.
+      if (req.withModels) { try { out.models = listModels(!!req.refresh); } catch (e) { out.modelsError = String(e && e.message || e); } }
+      return out;
     }
-    if (action === 'admin_ai_models') { const r = aiFetch('/models'); const ids = (r.data || r.models || []).map(m => m.id || m.name).filter(Boolean).sort(); return { ok: true, models: ids }; }
+    if (action === 'admin_ai_models') return { ok: true, models: listModels(!!req.refresh) };
     if (action === 'admin_agent') { const r = agentChat(Array.isArray(req.messages) ? req.messages : [], req.context ? (typeof req.context === 'string' ? req.context : JSON.stringify(req.context)) : ''); return Object.assign({ ok: true }, r); }
     if (action === 'admin_reports') return { ok: true, reports: listReports(Number(req.limit) || 100) };
     if (action === 'admin_drafts') return { ok: true, drafts: listDrafts() };
