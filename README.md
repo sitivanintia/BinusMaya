@@ -34,6 +34,10 @@ APK yang memuat dola.com di WebView dengan dashboard unduhan. Request Dola tidak
 ## Update sistem OTA (v1.10.1)
 Dashboard → **Update sistem**: server membaca satu folder Google Drive (`action=updates`) dan memilih file berversi tertinggi per komponen dari nama file (`Introvert-Dreams-SKILL-v6.md`, `auto-prompt-v2.js`, `single-clip-enforcer-v2.js`, `inject-v2.js`); isi file dikirim server (`action=update_file`) sehingga folder boleh privat. Salinan OTA di `files/updates/` dipakai oleh `readAsset()` dan lampiran MD. Lihat `server/README.md`.
 
+## Edisi (v1.12.0)
+- **user** (`SesiMini-x.y.z.apk`, id `com.introvertdreams.app`): untuk pengguna — gate lisensi online, tanpa agent, tanpa diagnostik.
+- **dev** (`SesiMini-Dev-x.y.z.apk`, id `com.introvertdreams.app.dev`, nama "SESI MINI Dev"): untuk developer — **tanpa gate lisensi**, aplikasi pengguna utuh + tombol **🤖 AI Agent** di dashboard (login token admin), diagnostik selalu dikirim dari HP ini. Bisa terpasang berdampingan dengan edisi user.
+
 ## Diagnostik & AI Agent (v1.11.0)
 Hanya dalam **mode developer** (tekan lama judul dashboard; default nonaktif) APK mengirim laporan anonim (`IDBridge.onReport` dari `inject.js`, download gagal, auto prompt not ready) ke `action=report` → sheet `Reports`. SESI Admin 1.1.0 punya **🤖 Agent** (provider OpenAI-compatible dengan model picker dari `/models`, tools read_asset/write_draft/publish, diff, diagnostik). Lihat `server/README.md`.
 

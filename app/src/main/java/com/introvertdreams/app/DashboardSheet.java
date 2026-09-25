@@ -37,10 +37,8 @@ public class DashboardSheet {
         LinearLayout hdr = row(a); 
         TextView title = tv(a, "SESI MINI", 20, TEXT, true); LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1); hdr.addView(title, lp);
         TextView pill = tv(a, "", 12, GREEN, true); hdr.addView(pill); root.addView(hdr);
-        boolean dev = a.prefs.getBoolean("diag", false);
-        TextView sub = tv(a, "Introvert Dreams · Dola companion" + (dev ? " · DEV" : ""), 12, TEXT2, false); root.addView(sub);
-        // Hidden developer mode: only the developer's own device sends diagnostics to the agent.
-        title.setOnLongClickListener(v -> { boolean on = !a.prefs.getBoolean("diag", false); a.prefs.edit().putBoolean("diag", on).apply(); sub.setText("Introvert Dreams · Dola companion" + (on ? " · DEV" : "")); android.widget.Toast.makeText(a, on ? "Mode developer AKTIF: HP ini mengirim diagnostik ke agent" : "Mode developer nonaktif", android.widget.Toast.LENGTH_LONG).show(); return true; });
+        boolean dev = BuildConfig.DEV_EDITION;
+        TextView sub = tv(a, "Introvert Dreams · Dola companion" + (dev ? " · DEVELOPER" : ""), 12, TEXT2, false); root.addView(sub);
         boolean lic = a.isLicensed();
         pill.setText(lic ? "● Active" : "○ Belum aktif"); pill.setTextColor(lic ? GREEN : ORANGE);
 
@@ -55,6 +53,7 @@ public class DashboardSheet {
         Button acct = btn(a, "Akun", false); LinearLayout.LayoutParams s2 = weight(); s2.leftMargin = dp(sv, 4); actions.addView(acct, s2);
         root.addView(actions, mt(sv, 12));
         acct.setOnClickListener(v -> { d.dismiss(); AccountsSheet.show(a); });
+        if (dev) { Button agentBtn = btn(a, "🤖 AI Agent", false); root.addView(agentBtn, mt(sv, 8)); agentBtn.setOnClickListener(v -> { d.dismiss(); Edition.openAgent(a); }); }
         TextView hint = tv(a, "", 12, TEXT2, false); root.addView(hint);
 
         // video list
@@ -113,6 +112,7 @@ public class DashboardSheet {
         d.setOnDismissListener(x -> a.prefs.edit().putStringSet("seenVideos", nowSeen).apply());
         scan.setOnClickListener(v -> { hint.setText("Memindai chat…"); a.scan(() -> { render[0].run(); hint.setText(a.videos.isEmpty() ? "Tidak ada video di halaman ini." : a.videos.size() + " video ditemukan"); }); });
 
+        if (!dev) {
         root.addView(groupTitle(a, "Lisensi"));
         LinearLayout lc = card(a); root.addView(lc);
         lc.addView(info(a, "Device ID", a.license.deviceId()));
@@ -121,6 +121,7 @@ public class DashboardSheet {
         LinearLayout lrow = row(a); lrow.setPadding(dp(sv, 12), 0, dp(sv, 12), dp(sv, 12));
         Button lbtn = btn(a, lic ? "Verifikasi ulang" : "Aktivasi", !lic); lbtn.setOnClickListener(v -> { d.dismiss(); if (lic) a.license.request("verify", a.license.savedKey(), (ok, m) -> { android.widget.Toast.makeText(a, m.startsWith("!") ? m.substring(1) : (ok ? "Lisensi valid ✓" : m), android.widget.Toast.LENGTH_SHORT).show(); if (!ok && m.startsWith("!")) { a.license.clear(); a.onLicenseLost(m.substring(1)); } }); else a.requireLicense(); });
         lrow.addView(lbtn, weight()); lc.addView(lrow);
+        }
 
         // Update system: versions come from the "Updates" sheet, files from Google Drive.
         root.addView(groupTitle(a, "Update sistem"));

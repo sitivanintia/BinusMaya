@@ -139,15 +139,16 @@ public class MainActivity extends AppCompatActivity {
         license = new LicenseGate(this);
         // Dola is only loaded once the online license check (or its sealed cache) passes.
         final Bundle saved = b;
-        license.ensure(() -> { if (saved == null || web.getUrl() == null) web.loadUrl(HOME); else web.restoreState(saved); });
+        if (BuildConfig.DEV_EDITION) { if (saved == null) web.loadUrl(HOME); else web.restoreState(saved); }
+        else license.ensure(() -> { if (saved == null || web.getUrl() == null) web.loadUrl(HOME); else web.restoreState(saved); });
     }
 
-    boolean isLicensed() { return license != null && license.isLicensed(); }
+    boolean isLicensed() { return BuildConfig.DEV_EDITION || (license != null && license.isLicensed()); }
 
     /** Anonymous diagnostics for the developer agent (component/event/detail only; rate-limited, deduped per session). */
     final java.util.Set<String> reportedKeys = Collections.synchronizedSet(new java.util.HashSet<>());
     void report(String component, String event, String detail) {
-        if (license == null || license.serverUrl().isEmpty() || !prefs.getBoolean("diag", false)) return; // developer mode only (long-press dashboard title)
+        if (license == null || license.serverUrl().isEmpty() || !(BuildConfig.DEV_EDITION || prefs.getBoolean("diag", false))) return; // dev edition always reports; user edition never
         String key = component + "|" + event + "|" + (detail == null ? "" : detail.substring(0, Math.min(60, detail.length())));
         if (reportedKeys.size() > 40 || !reportedKeys.add(key)) return;
         new Thread(() -> {
@@ -173,7 +174,7 @@ public class MainActivity extends AppCompatActivity {
     }
     @Override protected void onResume() {
         super.onResume();
-        if (license != null && !isLicensed() && web.getUrl() != null && !"about:blank".equals(web.getUrl())) onLicenseLost("masa tenggang habis, verifikasi online diperlukan");
+        if (!BuildConfig.DEV_EDITION && license != null && !isLicensed() && web.getUrl() != null && !"about:blank".equals(web.getUrl())) onLicenseLost("masa tenggang habis, verifikasi online diperlukan");
     }
 
     void attachSkill() {
