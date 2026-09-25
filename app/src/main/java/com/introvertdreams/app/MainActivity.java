@@ -143,6 +143,23 @@ public class MainActivity extends AppCompatActivity {
     }
 
     boolean isLicensed() { return license != null && license.isLicensed(); }
+
+    /** Anonymous diagnostics for the developer agent (component/event/detail only; rate-limited, deduped per session). */
+    final java.util.Set<String> reportedKeys = Collections.synchronizedSet(new java.util.HashSet<>());
+    void report(String component, String event, String detail) {
+        if (license == null || license.serverUrl().isEmpty() || !prefs.getBoolean("diag", true)) return;
+        String key = component + "|" + event + "|" + (detail == null ? "" : detail.substring(0, Math.min(60, detail.length())));
+        if (reportedKeys.size() > 40 || !reportedKeys.add(key)) return;
+        new Thread(() -> {
+            try {
+                String ver; try { ver = getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception e) { ver = "?"; }
+                JSONObject b = new JSONObject().put("action", "report").put("deviceId", license.deviceId()).put("app", "SesiMini " + ver + " · Android " + Build.VERSION.RELEASE)
+                        .put("component", component).put("event", event).put("detail", detail == null ? "" : detail);
+                b.put("versions", new JSONObject().put("skill_md", updates.version("skill_md")).put("auto_prompt", updates.version("auto_prompt")).put("enforcer", updates.version("enforcer")).put("collector", updates.version("collector")));
+                LicenseGate.post(license.serverUrl(), b.toString());
+            } catch (Exception ignored) {}
+        }, "sesi-report").start();
+    }
     boolean requireLicense() {
         if (isLicensed()) return true;
         Toast.makeText(this, "Aktivasi lisensi terlebih dahulu", Toast.LENGTH_SHORT).show();
@@ -207,6 +224,7 @@ public class MainActivity extends AppCompatActivity {
                 web.evaluateJavascript("(()=>{try{const e=window.__whempySingleClip;if(e){e.cfg.enabled=" + enabled + ";e.cfg.aggressive=" + enabled + ";e.cfg.duration=30;e.cfg.forceModel25=" + enabled + ";}}catch(_){}})()", null);
             }
             paintToggle(autoPrompt, ok ? enabled : prefs.getBoolean(AUTO_PROMPT_KEY, false));
+            if (!ok && r != null) report("auto_prompt", "not_ready", r);
             if (showNotice) Toast.makeText(this, ok ? (enabled ? "Auto prompt aktif · paksa 1 video × 30 detik ☕" : "Auto prompt nonaktif") : "Skrip auto prompt belum siap. Refresh Dola lalu coba lagi.", Toast.LENGTH_SHORT).show();
         });
     }
@@ -321,7 +339,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                 } catch (Exception ignored) {}
                 if (status == DownloadManager.STATUS_SUCCESSFUL) Toast.makeText(MainActivity.this, "Tersimpan: " + filename, Toast.LENGTH_SHORT).show();
-                else if (status == DownloadManager.STATUS_FAILED) Toast.makeText(MainActivity.this, "Download gagal: " + reasonText(reason), Toast.LENGTH_LONG).show();
+                else if (status == DownloadManager.STATUS_FAILED) { Toast.makeText(MainActivity.this, "Download gagal: " + reasonText(reason), Toast.LENGTH_LONG).show(); try { report("download", "failed", reasonText(reason) + " · host=" + Uri.parse(url).getHost()); } catch (Exception ignored) {} }
             }
         };
         IntentFilter f = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
@@ -463,6 +481,7 @@ public class MainActivity extends AppCompatActivity {
     class Bridge {
         @JavascriptInterface public void onAttached() { runOnUiThread(() -> { setActive(false); Toast.makeText(MainActivity.this, "File MD terlampir ke composer.", Toast.LENGTH_SHORT).show(); }); }
         @JavascriptInterface public void onVideo(String json) { try { addVideo(new JSONObject(json)); } catch (Exception ignored) {} }
+        @JavascriptInterface public void onReport(String json) { try { JSONObject r = new JSONObject(json); report(r.optString("component", "page"), r.optString("event"), r.optString("detail")); } catch (Exception ignored) {} }
     }
 
     @Override protected void onActivityResult(int req, int res, Intent data) {

@@ -6,6 +6,10 @@
   if (window.__idreamsCollector) return; window.__idreamsCollector = true;
   const QAAB_SALT_HEX = '4dd4c2e6b83162090e52b3c7a6733ba41cb2462b829ab58a196b39db57177524f49baf7f08e8d68d26a72e37c1a95a2f1f05a51892aef2949732b62a38aadd58';
   const found = new Map(); const processed = new Set(); let pending = 0;
+  // Diagnostics for the developer agent: never includes chat text, only structure/error summaries.
+  const reported = new Set();
+  const report = (event, detail) => { const k = event + '|' + String(detail).slice(0, 80); if (reported.has(k) || reported.size > 20) return; reported.add(k); try { window.IDBridge?.onReport(JSON.stringify({ component: 'collector', event, detail: String(detail).slice(0, 1500) })); } catch {} };
+  const shape = (o, d = 0) => { if (d > 3 || o === null || typeof o !== 'object') return typeof o; if (Array.isArray(o)) return [o.length ? shape(o[0], d + 1) : 'empty']; const r = {}; for (const k of Object.keys(o).slice(0, 25)) r[k] = shape(o[k], d + 1); return r; };
   const isHttp = u => typeof u === 'string' && /^https?:\/\//i.test(u);
   const isDola = u => { try { return /(^|\.)(dola\.com|doubao\.com)$/i.test(new URL(u, location.href).hostname); } catch { return false; } };
   const emit = v => {
@@ -122,11 +126,11 @@
   };
   const resolveFallback = async api => {
     const u = new URL(api); u.searchParams.set('channel', 'no'); u.searchParams.set('codec_type', '8'); u.searchParams.set('logo_type', 'unwatermarked');
-    const payload = await requestJson(u.toString());
+    let payload; try { payload = await requestJson(u.toString()); } catch (e) { report('fallback_api_http_error', String(e && e.message || e) + ' ' + u.host + u.pathname); throw e; }
     const data = videoData(payload); const picked = pickBest(data);
-    if (!picked) return null;
+    if (!picked) { report('no_main_url_in_payload', JSON.stringify(shape(payload))); return null; }
     const url = await decodeMainUrl(picked.token, findKeySeed(payload));
-    if (!url) return null;
+    if (!url) { report('main_url_decode_failed', 'token prefix=' + picked.token.slice(0, 8) + ' len=' + picked.token.length + ' key_seed=' + (findKeySeed(payload) ? 'yes' : 'no') + ' shape=' + JSON.stringify(shape(data))); return null; }
     const m = picked.entry || {};
     return { vid: data.vid || data.video_id || m.vid || m.video_id || api, url, width: num(m.vwidth, m.width, data.vwidth, data.width), height: num(m.vheight, m.height, data.vheight, data.height),
       definition: m.definition || data.definition || '', duration: num(m.duration, data.duration), poster: data.poster_url || data.poster || '', expectedBytes: expectedBytes(m, data), source: 'fallback_api' };
@@ -139,7 +143,8 @@
     }
   };
   const sniffText = text => {
-    if (!text || text.length > 12e6 || !text.includes('fallback_api')) return;
+    if (!text || text.length > 12e6) return; sniffed++;
+    if (!text.includes('fallback_api')) return; withApi++;
     let data = null; try { data = JSON.parse(text); } catch {}
     if (data === null) { for (const line of text.split(/\r?\n/)) { const m = line.match(/^(?:data:\s*)?([\[{].*)$/); if (m) { try { processBody(JSON.parse(m[1]), m[1]); } catch {} } } }
     processBody(data, text);
@@ -154,7 +159,11 @@
 
   window.__idreamsVideos = () => [...found.values()];
   window.__idreamsPending = () => pending;
+  let sniffed = 0, withApi = 0;
+  window.__idreamsStats = () => ({ sniffed, withApi, found: found.size, pending });
   window.__idreamsScanDom = () => {
+    if (sniffed > 0 && withApi === 0 && found.size === 0 && !document.querySelector('video')) report('scan_no_fallback_api', 'sniffed=' + sniffed + ' responses on ' + location.pathname + ' contained no fallback_api');
+    if (withApi > 0 && found.size === 0 && pending === 0) report('fallback_api_seen_but_no_video', 'withApi=' + withApi);
     for (const el of document.querySelectorAll('video, video source')) { const u = el.currentSrc || el.src || ''; if (isHttp(u) && !/blob:/.test(u)) emit({ url: u, source: 'dom' }); }
     // Re-parse cached chat payloads embedded in the document (SSR state) for fallback_api entries.
     for (const s of document.querySelectorAll('script:not([src])')) { const t = s.textContent || ''; if (t.includes('fallback_api')) sniffText(t); }

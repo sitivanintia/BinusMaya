@@ -47,3 +47,13 @@ Fitur: buat key (jumlah, max perangkat, masa berlaku, label), nonaktifkan/aktifk
    - Pendeteksi video: `inject-v2.js`
    Versi bawaan APK: MD **v5**, lainnya **v1**. Angka boleh bertitik (`v2.1`); `v10` > `v2`.
 4. Di APK: dashboard → **Update sistem → Cek & update**. File diambil lewat server (base64, maks 2 MB) dan langsung dipakai. Long-press baris untuk kembali ke bawaan APK.
+
+## AI Agent developer (APK SESI Admin → 🤖 Agent)
+Agent memakai provider **OpenAI-compatible** (OpenAI, OpenRouter, Groq, DeepSeek, Ollama publik, dll.). Konfigurasi disimpan di Script Properties (`AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`) — API key tidak pernah sampai ke pengguna.
+1. Tempel `Code.gs` terbaru → Run `setup` → deploy versi baru. Saat pertama Run, setujui izin tambahan (**UrlFetch** untuk memanggil provider).
+2. Di SESI Admin → **🤖 Agent → ⚙ Provider**: isi Base URL + API key → **Ambil daftar model** (memanggil `GET /models` provider) → pilih model → Simpan.
+3. Tab **Chat**: minta agent menyesuaikan MD / skrip. Tools yang tersedia: `read_asset`, `write_draft` (file lengkap, JS di-syntax-check, versi otomatis naik), `list_drafts`, `syntax_check`, `get_reports` (diagnostik dari aplikasi pengguna), `list_licenses`.
+4. Tab **Draft**: **Lihat perubahan** (diff baris) → **Terapkan** memindahkan file ke folder update sehingga pengguna mendapatkannya lewat “Cek & update”. Tidak ada publish otomatis.
+5. Tab **Diagnostik**: laporan anonim dari APK/extension (`action=report`): komponen, event (`main_url_decode_failed`, `no_main_url_in_payload`, `scan_no_fallback_api`, `download failed`, `auto_prompt not_ready`), detail berupa struktur/ringkasan error tanpa isi chat. Agent membaca ini untuk melihat perubahan perilaku Dola.
+
+Batas: Apps Script maks ±6 menit per permintaan (agent berhenti sopan di 4,5 menit — ketik “lanjutkan”); file besar (enforcer ±54 KB) butuh model dengan konteks ≥ 64k. Aset bawaan (bila belum ada di folder Drive) dibaca dari repo GitHub publik (`BUNDLED_RAW`).

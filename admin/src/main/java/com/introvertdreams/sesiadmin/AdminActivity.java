@@ -60,6 +60,7 @@ public class AdminActivity extends AppCompatActivity {
         LinearLayout tcol = new LinearLayout(this); tcol.setOrientation(LinearLayout.VERTICAL);
         tcol.addView(tv("SESI Admin", 20, TEXT, true)); tcol.addView(tv("Lisensi · Google Sheet", 11, TEXT2, false));
         hdr.addView(tcol, weight());
+        Button agent = btn("🤖 Agent", false); agent.setOnClickListener(v -> startActivity(new Intent(this, AgentActivity.class))); LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); al.rightMargin = dp(6); hdr.addView(agent, al);
         Button gear = btn("⚙", false); gear.setOnClickListener(v -> showLogin()); hdr.addView(gear);
         root.addView(hdr);
 

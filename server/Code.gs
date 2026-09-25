@@ -41,6 +41,7 @@ function handle(req) {
   // Defensive dispatch: a truncated paste yields a clear JSON error instead of an HTML crash page.
   if (action === 'updates') return out.setContent(JSON.stringify(has('updatesManifest') ? updatesManifest() : { ok: false, reason: 'code_incomplete' }));
   if (action === 'update_file') return out.setContent(JSON.stringify(has('updateFile') ? updateFile(req) : { ok: false, reason: 'code_incomplete' }));
+  if (action === 'report') return out.setContent(JSON.stringify(has('storeReport') ? storeReport(req) : { ok: false, reason: 'code_incomplete' }));
   if (action.startsWith('admin_')) return out.setContent(JSON.stringify(has('admin') ? admin(action, req) : { ok: false, reason: 'code_incomplete', nonce: String(req.nonce || '') }));
   const key = normalizeKey(req.key), deviceId = String(req.deviceId || '').trim().toUpperCase(), nonce = String(req.nonce || '');
   if (!/^SESI-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/.test(key) || !/^[2-9A-HJ-NP-Z]{6}$/.test(deviceId)) {
@@ -149,6 +150,7 @@ function admin(action, req) {
       return { ok: true, keys, nonce, licenses: listLicenses(sheet) };
     }
     if (action === 'admin_list') return { ok: true, nonce, licenses: listLicenses(sheet), serverTime: Date.now() };
+    if (action.startsWith('admin_ai_') || action === 'admin_agent' || action === 'admin_reports' || action.startsWith('admin_draft')) return Object.assign(agentAdmin(action, req), { nonce });
     const key = normalizeKey(req.key);
     const rows = sheet.getDataRange().getValues();
     let r = -1; for (let i = 1; i < rows.length; i++) if (normalizeKey(rows[i][0]) === key) { r = i + 1; break; }
@@ -230,4 +232,142 @@ function updateFile(req) {
     if (f.getSize() > 2 * 1024 * 1024) return { ok: false, reason: 'too_large' };
     return { ok: true, name: f.getName(), size: f.getSize(), content: Utilities.base64Encode(f.getBlob().getBytes()) };
   } catch (e) { return { ok: false, reason: 'file_access' }; }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Diagnostik: APK/extension mengirim laporan anonim (komponen, event, detail) → sheet "Reports".
+// Agent AI membacanya untuk melihat perubahan perilaku Dola (deteksi gagal, download 403, dsb.).
+// ---------------------------------------------------------------------------------------------
+const REPORTS_SHEET = 'Reports', REPORTS_MAX = 2000;
+function reportsSheet() {
+  const ss = SpreadsheetApp.getActive(); let s = ss.getSheetByName(REPORTS_SHEET);
+  if (!s) { s = ss.insertSheet(REPORTS_SHEET); s.appendRow(['Waktu', 'Device', 'App', 'Komponen', 'Event', 'Detail']); s.setFrozenRows(1); }
+  return s;
+}
+function storeReport(req) {
+  const dev = String(req.deviceId || '').toUpperCase().slice(0, 12), comp = String(req.component || '').slice(0, 40), ev = String(req.event || '').slice(0, 80);
+  if (!comp || !ev) return { ok: false, reason: 'bad_request' };
+  const s = reportsSheet();
+  const vers = req.versions && typeof req.versions === 'object' ? ' [' + Object.keys(req.versions).map(k => k + '=' + req.versions[k]).join(' ') + ']' : '';
+  s.appendRow([new Date(), dev, (String(req.app || '') + vers).slice(0, 160), comp, ev, String(req.detail || '').slice(0, 4000)]);
+  if (s.getLastRow() > REPORTS_MAX + 1) s.deleteRows(2, s.getLastRow() - REPORTS_MAX - 1);
+  return { ok: true };
+}
+function listReports(limit) {
+  const s = reportsSheet(); const n = s.getLastRow() - 1; if (n <= 0) return [];
+  const take = Math.min(n, Math.max(1, limit || 50));
+  return s.getRange(n - take + 2, 1, take, 6).getValues().reverse().map(r => ({ time: r[0] instanceof Date ? r[0].toISOString() : String(r[0]), device: r[1], app: r[2], component: r[3], event: r[4], detail: r[5] }));
+}
+
+// ---------------------------------------------------------------------------------------------
+// AI Agent (provider OpenAI-compatible). Konfigurasi di Script Properties: AI_BASE_URL, AI_API_KEY, AI_MODEL.
+// Tools: read_asset, write_draft, publish_draft, list_drafts, syntax_check, get_reports, list_licenses.
+// Draft disimpan di sub-folder "drafts" dan hanya aktif setelah admin menekan Terapkan (publish_draft).
+// ---------------------------------------------------------------------------------------------
+const ASSET_IDS = ['skill_md', 'auto_prompt', 'enforcer', 'collector'];
+const ASSET_FILES = { skill_md: ['Introvert-Dreams-SKILL', 'md'], auto_prompt: ['auto-prompt', 'js'], enforcer: ['single-clip-enforcer', 'js'], collector: ['inject', 'js'] };
+const BUNDLED_RAW = 'https://raw.githubusercontent.com/sitivanintia/BinusMaya/hoplite/andros-901d108b/app/src/main/assets/';
+const BUNDLED_NAMES = { skill_md: 'Introvert-Dreams-SKILL-v5.md', auto_prompt: 'auto-prompt.js', enforcer: 'single-clip-enforcer.js', collector: 'inject.js' };
+const BUNDLED_VER = { skill_md: 'v5', auto_prompt: 'v1', enforcer: 'v1', collector: 'v1' };
+
+function aiProps() { const p = PropertiesService.getScriptProperties(); return { baseUrl: (p.getProperty('AI_BASE_URL') || '').replace(/\/+$/, ''), apiKey: p.getProperty('AI_API_KEY') || '', model: p.getProperty('AI_MODEL') || '' }; }
+function aiFetch(path, payload) {
+  const c = aiProps(); if (!c.baseUrl || !c.apiKey) throw new Error('ai_not_configured');
+  const opt = { method: payload ? 'post' : 'get', headers: { Authorization: 'Bearer ' + c.apiKey, 'HTTP-Referer': 'https://sesi-mini', 'X-Title': 'SESI MINI Agent' }, muteHttpExceptions: true };
+  if (payload) { opt.contentType = 'application/json'; opt.payload = JSON.stringify(payload); }
+  const r = UrlFetchApp.fetch(c.baseUrl + path, opt); const code = r.getResponseCode(); const text = r.getContentText();
+  if (code < 200 || code >= 300) throw new Error('Provider HTTP ' + code + ': ' + text.slice(0, 300));
+  return JSON.parse(text);
+}
+function draftsFolder() { const root = DriveApp.getFolderById(folderId()); const it = root.getFoldersByName('drafts'); return it.hasNext() ? it.next() : root.createFolder('drafts'); }
+function latestAsset(id) {
+  const m = updatesManifest(); const a = (m.assets || []).find(x => x.id === id);
+  if (a) { const f = DriveApp.getFileById(a.fileId); return { id, version: a.version, filename: a.filename, source: 'drive', content: f.getBlob().getDataAsString('UTF-8') }; }
+  const r = UrlFetchApp.fetch(BUNDLED_RAW + BUNDLED_NAMES[id], { muteHttpExceptions: true });
+  if (r.getResponseCode() !== 200) throw new Error('aset bawaan tidak bisa diambil (' + r.getResponseCode() + ')');
+  return { id, version: BUNDLED_VER[id], filename: BUNDLED_NAMES[id], source: 'bundled', content: r.getContentText() };
+}
+function nextVersion(cur) { const m = String(cur || '').match(/(\d+)(?:\.(\d+))?/); return 'v' + ((m ? Number(m[1]) : 0) + 1); }
+function listDrafts() { const out = []; const it = draftsFolder().getFiles(); while (it.hasNext()) { const f = it.next(); out.push({ fileId: f.getId(), name: f.getName(), size: f.getSize(), updated: f.getLastUpdated().getTime(), note: f.getDescription() || '' }); } return out.sort((a, b) => b.updated - a.updated); }
+function writeDraft(id, content, note) {
+  if (!ASSET_IDS.includes(id)) throw new Error('asset id tidak dikenal');
+  if (typeof content !== 'string' || content.length < 20) throw new Error('isi kosong');
+  if (ASSET_FILES[id][1] === 'js') { const chk = syntaxCheck(content); if (!chk.ok) throw new Error('syntax error: ' + chk.error); }
+  const cur = latestAsset(id); const ver = nextVersion(cur.version);
+  const name = ASSET_FILES[id][0] + '-' + ver + '.' + ASSET_FILES[id][1];
+  const folder = draftsFolder(); const old = folder.getFilesByName(name); while (old.hasNext()) old.next().setTrashed(true);
+  const f = folder.createFile(name, content, ASSET_FILES[id][1] === 'md' ? 'text/markdown' : 'application/javascript'); f.setDescription(String(note || '').slice(0, 500));
+  return { ok: true, fileId: f.getId(), name, version: ver, from: cur.version, bytes: content.length };
+}
+function publishDraft(fileId) {
+  const f = DriveApp.getFileById(fileId); const drafts = draftsFolder(); let inDrafts = false; const ps = f.getParents(); while (ps.hasNext()) if (ps.next().getId() === drafts.getId()) inDrafts = true;
+  if (!inDrafts) throw new Error('bukan draft');
+  const root = DriveApp.getFolderById(folderId()); f.moveTo(root);
+  return { ok: true, name: f.getName(), published: true };
+}
+function syntaxCheck(code) { try { new Function(code); return { ok: true }; } catch (e) { return { ok: false, error: String(e && e.message || e) }; } }
+
+const AGENT_TOOLS = [
+  { type: 'function', function: { name: 'read_asset', description: 'Baca isi terbaru sebuah komponen (skill_md = System MD; auto_prompt; enforcer = paksa 1 video 30 detik; collector = pendeteksi video inject.js). Mengembalikan versi, nama file dan isi lengkap.', parameters: { type: 'object', properties: { id: { type: 'string', enum: ASSET_IDS } }, required: ['id'] } } },
+  { type: 'function', function: { name: 'write_draft', description: 'Simpan versi baru sebuah komponen sebagai DRAFT (belum aktif untuk user). Isi harus FILE LENGKAP, bukan potongan. JS diperiksa sintaksnya. Versi otomatis naik (v5→v6).', parameters: { type: 'object', properties: { id: { type: 'string', enum: ASSET_IDS }, content: { type: 'string' }, note: { type: 'string', description: 'ringkasan perubahan' } }, required: ['id', 'content', 'note'] } } },
+  { type: 'function', function: { name: 'list_drafts', description: 'Daftar draft yang menunggu persetujuan admin.', parameters: { type: 'object', properties: {} } } },
+  { type: 'function', function: { name: 'syntax_check', description: 'Periksa sintaks JavaScript sebelum menyimpan.', parameters: { type: 'object', properties: { code: { type: 'string' } }, required: ['code'] } } },
+  { type: 'function', function: { name: 'get_reports', description: 'Laporan diagnostik terbaru dari aplikasi pengguna (deteksi gagal, download gagal, skrip tidak siap, struktur respons Dola). Gunakan untuk memahami perubahan perilaku Dola.', parameters: { type: 'object', properties: { limit: { type: 'integer' }, component: { type: 'string' } } } } },
+  { type: 'function', function: { name: 'list_licenses', description: 'Ringkasan lisensi (jumlah aktif, dicabut, perangkat, online 24 jam) dan 20 entri terbaru.', parameters: { type: 'object', properties: {} } } }
+];
+const AGENT_SYSTEM = 'Kamu adalah AI Agent developer untuk SESI MINI (aplikasi Android + extension pendamping Dola/Doubao: pendeteksi video HD tanpa watermark, auto prompt Seedance 2.5 / 30 detik, System MD yang dilampirkan ke chat). '
+  + 'Tugasmu: menyesuaikan System MD dan skrip JS saat perilaku Dola berubah, berdasarkan permintaan admin dan laporan diagnostik. Alur kerja: (1) baca laporan (get_reports) dan aset terkait (read_asset), (2) analisis akar masalah, (3) buat perubahan MINIMAL dan aman, (4) untuk JS jalankan syntax_check, (5) simpan dengan write_draft berisi FILE LENGKAP, (6) jelaskan singkat apa yang berubah dan risiko. '
+  + 'Jangan pernah mengubah perilaku yang tidak diminta, jangan menghapus fitur, jangan menaruh secret. Skrip berjalan di document_start pada halaman dola.com (MAIN world), boleh memakai window.IDBridge?.onVideo(json), window.IDBridge?.onReport(json). Balas dalam Bahasa Indonesia.';
+
+function runTool(name, args) {
+  switch (name) {
+    case 'read_asset': return latestAsset(String(args.id));
+    case 'write_draft': return writeDraft(String(args.id), String(args.content), args.note);
+    case 'list_drafts': return { drafts: listDrafts() };
+    case 'syntax_check': return syntaxCheck(String(args.code || ''));
+    case 'get_reports': { let r = listReports(Math.min(200, Number(args.limit) || 50)); if (args.component) r = r.filter(x => String(x.component).toLowerCase().includes(String(args.component).toLowerCase())); return { count: r.length, reports: r }; }
+    case 'list_licenses': { const l = listLicenses(SpreadsheetApp.getActive().getSheetByName(SHEET)); const now = Date.now(); return { total: l.length, active: l.filter(x => x.status === 'active').length, revoked: l.filter(x => x.status === 'revoked').length, devices: l.reduce((s, x) => s + x.devices.length, 0), online24h: l.filter(x => now - x.lastSeen < 86400000).length, latest: l.slice(-20) }; }
+    default: throw new Error('tool tidak dikenal: ' + name);
+  }
+}
+function agentChat(messages) {
+  const c = aiProps(); if (!c.model) throw new Error('model belum dipilih');
+  const msgs = [{ role: 'system', content: AGENT_SYSTEM }].concat(messages); const events = []; const started = Date.now();
+  for (let step = 0; step < 8; step++) {
+    if (Date.now() - started > 270000) { events.push({ type: 'note', text: 'Batas waktu server; kirim "lanjutkan" untuk meneruskan.' }); break; }
+    const r = aiFetch('/chat/completions', { model: c.model, messages: msgs, tools: AGENT_TOOLS, tool_choice: 'auto', temperature: 0.2 });
+    const m = r.choices && r.choices[0] && r.choices[0].message; if (!m) throw new Error('respons provider kosong');
+    msgs.push(m);
+    if (!m.tool_calls || !m.tool_calls.length) { events.push({ type: 'assistant', text: m.content || '' }); break; }
+    for (const tc of m.tool_calls) {
+      let args = {}; try { args = JSON.parse(tc.function.arguments || '{}'); } catch (_) {}
+      let result; try { result = runTool(tc.function.name, args); } catch (e) { result = { error: String(e && e.message || e) }; }
+      const summary = tc.function.name === 'write_draft' ? (result.error ? 'gagal: ' + result.error : 'draft ' + result.name + ' (' + result.from + ' → ' + result.version + ')') : tc.function.name === 'read_asset' ? (result.error || (result.filename + ' ' + result.version + ' · ' + result.content.length + ' char')) : JSON.stringify(result).slice(0, 160);
+      events.push({ type: 'tool', name: tc.function.name, args: tc.function.name === 'write_draft' ? { id: args.id, note: args.note } : args, summary, draft: tc.function.name === 'write_draft' && result.ok ? result : undefined });
+      msgs.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result).slice(0, 200000) });
+    }
+  }
+  // Return the transcript without the system prompt so the client can continue the conversation.
+  return { events, messages: msgs.slice(1) };
+}
+
+function agentAdmin(action, req) {
+  try {
+    const p = PropertiesService.getScriptProperties();
+    if (action === 'admin_ai_get') { const c = aiProps(); return { ok: true, baseUrl: c.baseUrl, model: c.model, hasKey: !!c.apiKey }; }
+    if (action === 'admin_ai_set') {
+      if (req.baseUrl !== undefined) p.setProperty('AI_BASE_URL', String(req.baseUrl).trim());
+      if (req.apiKey) p.setProperty('AI_API_KEY', String(req.apiKey).trim());
+      if (req.model !== undefined) p.setProperty('AI_MODEL', String(req.model).trim());
+      const c = aiProps(); return { ok: true, baseUrl: c.baseUrl, model: c.model, hasKey: !!c.apiKey };
+    }
+    if (action === 'admin_ai_models') { const r = aiFetch('/models'); const ids = (r.data || r.models || []).map(m => m.id || m.name).filter(Boolean).sort(); return { ok: true, models: ids }; }
+    if (action === 'admin_agent') { const r = agentChat(Array.isArray(req.messages) ? req.messages : []); return Object.assign({ ok: true }, r); }
+    if (action === 'admin_reports') return { ok: true, reports: listReports(Number(req.limit) || 100) };
+    if (action === 'admin_drafts') return { ok: true, drafts: listDrafts() };
+    if (action === 'admin_draft_get') { const f = DriveApp.getFileById(String(req.fileId)); const id = ASSET_IDS.find(k => f.getName().startsWith(ASSET_FILES[k][0])); const cur = id ? latestAsset(id) : null; return { ok: true, name: f.getName(), content: f.getBlob().getDataAsString('UTF-8'), note: f.getDescription() || '', current: cur ? { version: cur.version, filename: cur.filename, content: cur.content } : null }; }
+    if (action === 'admin_draft_publish') return publishDraft(String(req.fileId));
+    if (action === 'admin_draft_delete') { DriveApp.getFileById(String(req.fileId)).setTrashed(true); return { ok: true }; }
+    return { ok: false, reason: 'bad_request' };
+  } catch (e) { const msg = String(e && e.message || e); return { ok: false, reason: msg === 'ai_not_configured' ? 'ai_not_configured' : 'agent_error', error: msg }; }
 }
