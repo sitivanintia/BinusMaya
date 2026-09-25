@@ -35,6 +35,7 @@ public class AgentActivity extends AppCompatActivity {
     LinearLayout chat, drafts, reports; ScrollView chatScroll; EditText input; Button send; TextView modelLabel, status;
     JSONArray messages = new JSONArray(); int tab = 0; LinearLayout[] panes = new LinearLayout[3]; TextView[] tabs = new TextView[3];
     // Real-time: pending context snapshot for the next turn, live event queue, live switch.
+    LocalAgent agent;
     static volatile AgentActivity live; String pendingContext; final JSONArray liveQueue = new JSONArray(); boolean liveOn, busy; TextView liveBtn; final android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
 
     String url() { String u = prefs.getString("url", ""); return u.isEmpty() ? getString(R.string.license_url) : u; }
@@ -47,7 +48,8 @@ public class AgentActivity extends AppCompatActivity {
         try { messages = new JSONArray(prefs.getString("agentMessages", "[]")); } catch (Exception e) { messages = new JSONArray(); }
         build();
         liveOn = prefs.getBoolean("agentLive", true); paintLive();
-        if (token().isEmpty()) askToken(); else { loadConfig(); renderChat(); loadDrafts(); loadReports(); handleIntent(getIntent()); }
+        agent = new LocalAgent(MainActivity.instance, prefs);
+        loadConfig(); renderChat(); loadDrafts(); loadReports(); handleIntent(getIntent());
     }
 
     void build() {
@@ -72,7 +74,7 @@ public class AgentActivity extends AppCompatActivity {
         chatScroll = new ScrollView(this); chat = new LinearLayout(this); chat.setOrientation(LinearLayout.VERTICAL); chat.setPadding(dp(12), dp(4), dp(12), dp(12)); chatScroll.addView(chat);
         chatPane.addView(chatScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         LinearLayout quick = row(); quick.setPadding(dp(12), 0, dp(12), dp(4));
-        for (String[] q : new String[][]{{"Analisis laporan", "Baca laporan diagnostik terbaru (get_reports), kelompokkan masalahnya, dan jelaskan apa yang berubah di Dola serta komponen mana yang perlu disesuaikan. Belum perlu mengubah apa pun."}, {"Perbaiki pendeteksi", "Pendeteksi video (collector) bermasalah. Baca laporan diagnostik komponen collector dan inject.js terbaru, cari akar masalahnya, lalu buat draft perbaikan minimal dengan write_draft."}, {"Perbaiki MD", "Baca System MD terbaru dan laporan. Sesuaikan instruksi MD agar Dola kembali mengikuti perilaku yang diinginkan (satu video 30 detik Seedance 2.5, preview native di balasan pertama). Simpan sebagai draft."}}) {
+        for (String[] q : new String[][]{{"Cek respons Dola", "Lihat get_state dan get_netlog (25 terakhir). Ringkas endpoint API Dola yang aktif, status, dan anomali (error, lambat, struktur tak terduga). Tandai request yang berkaitan video/generate."}, {"Kenapa 15 detik?", "Video hasil 15 detik padahal diminta 30. Periksa netlog: cari request generate/completion video, buka get_request untuk melihat body lengkap setelah rewrite (duration/count/model), lalu respons servernya. Tentukan apakah penyebabnya di skrip kita (request belum 30) atau server Dola memangkas (request 30 tapi hasil 15). Jelaskan buktinya dan yang harus dilakukan; buat draft enforcer/MD jika perlu."}, {"Deteksi video gagal", "Pendeteksi video tidak menemukan video. Periksa get_state (statistik collector), netlog untuk respons yang mengandung fallback_api / video, dan struktur payload aktual. Baca collector (inject.js), temukan ketidakcocokan, buat draft perbaikan minimal."}, {"Get API Dola", "Dari netlog, daftarkan semua endpoint API Dola unik (method + path), fungsinya masing-masing berdasarkan body/respons, dan mana yang berubah dari yang diasumsikan skrip kita."}}) {
             TextView c = tv(q[0], 11, TEXT, false); c.setPadding(dp(10), dp(5), dp(10), dp(5)); c.setBackground(pill(CARD)); c.setOnClickListener(v -> { input.setText(q[1]); });
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT); lp.rightMargin = dp(6); quick.addView(c, lp);
         }
@@ -106,14 +108,14 @@ public class AgentActivity extends AppCompatActivity {
     @Override protected void onResume() { super.onResume(); live = this; }
     @Override protected void onPause() { super.onPause(); if (live == this) live = null; }
     void handleIntent(Intent i) {
-        if (i == null || token().isEmpty()) return;
+        if (i == null) return;
         String ctx = i.getStringExtra("context"), prompt = i.getStringExtra("prompt"); i.removeExtra("context"); i.removeExtra("prompt");
         if (ctx != null) pendingContext = ctx;
         if (prompt != null && !prompt.isEmpty()) { input.setText(prompt); sendMessage(); }
     }
     /** Live mode: events from the running app arrive here and are analysed automatically (debounced, one turn at a time). */
     void onLiveEvent(JSONObject e) {
-        if (!liveOn || token().isEmpty()) return;
+        if (!liveOn || !agent.configured()) return;
         liveQueue.put(e); status.setTextColor(TEXT2); status.setText("Live: " + liveQueue.length() + " kejadian baru — menganalisis…");
         h.removeCallbacks(flushLive); h.postDelayed(flushLive, 6000);
     }
@@ -133,13 +135,13 @@ public class AgentActivity extends AppCompatActivity {
     /** Developer edition talks to the same Apps Script server with the admin token (from setup() in Apps Script). */
     void askToken() {
         LinearLayout box = new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL); box.setPadding(dp(20), dp(8), dp(20), 0);
-        box.addView(tv("Token admin dari fungsi setup() di Apps Script (Execution log).", 12, TEXT2, false));
+        box.addView(tv("Hanya untuk Publish ke folder Drive. Token admin dari fungsi setup() di Apps Script (Execution log).", 12, TEXT2, false));
         EditText tok = new EditText(this); tok.setHint("ADM-XXXXXX-XXXXXX-XXXXXX"); tok.setText(token()); tok.setSingleLine(); tok.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS | InputType.TYPE_TEXT_VARIATION_PASSWORD); box.addView(tok);
-        AlertDialog d = new AlertDialog.Builder(this).setTitle("Masuk Developer").setView(box).setCancelable(false).setPositiveButton("Masuk", null).setNegativeButton("Kembali", (dd, w) -> finish()).create();
+        AlertDialog d = new AlertDialog.Builder(this).setTitle("Masuk Developer").setView(box).setCancelable(true).setPositiveButton("Masuk", null).setNegativeButton("Batal", null).create();
         d.setOnShowListener(x -> d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String t = tok.getText().toString().trim(); if (t.isEmpty()) { tok.setError("Wajib diisi"); return; }
             d.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);
-            Api.call(url(), t, "admin_ping", null, (r, err) -> { d.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true); if (err != null) { tok.setError(err); return; } prefs.edit().putString("token", t).apply(); d.dismiss(); loadConfig(); renderChat(); loadDrafts(); loadReports(); });
+            Api.call(url(), t, "admin_ping", null, (r, err) -> { d.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(true); if (err != null) { tok.setError(err); return; } prefs.edit().putString("token", t).apply(); d.dismiss(); toast("Token tersimpan — tekan Publish lagi"); });
         }));
         d.show();
     }
@@ -147,65 +149,58 @@ public class AgentActivity extends AppCompatActivity {
 
     // ---- provider config + model picker ----
     void loadConfig() {
-        // Old server code (without agent routes) answers admin_ai_* with not_found; detect it once and explain.
-        Api.call(url(), token(), "admin_ai_get", null, (r, err) -> { if (err != null && err.contains("Key tidak ditemukan")) { status.setTextColor(ORANGE); status.setText("Server masih Code.gs lama (tanpa AI Agent). Tempel Code.gs terbaru (±375 baris, CODE_VERSION 5), Run setup, lalu Deploy → Manage deployments → ✏ → New version."); modelLabel.setText("server perlu diperbarui"); return; } if (r != null) modelLabel.setText(r.optString("baseUrl").isEmpty() ? "provider belum diatur" : (r.optString("model").isEmpty() ? "model belum dipilih" : r.optString("model")) + " · " + r.optString("baseUrl").replaceAll("^https?://", "").replaceAll("/.*$", "")); });
+        modelLabel.setText(!agent.configured() ? "provider belum diatur — ketuk ⚙" : (agent.model().isEmpty() ? "model belum dipilih" : agent.model()) + " · " + agent.baseUrl().replaceAll("^https?://", "").replaceAll("/.*$", "") + " · lokal");
     }
     void showConfig() {
-        Api.call(url(), token(), "admin_ai_get", null, (cur, err) -> {
-            LinearLayout box = new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL); box.setPadding(dp(20), dp(8), dp(20), 0);
-            box.addView(tv("Provider OpenAI-compatible. Contoh base URL: https://api.openai.com/v1 · https://openrouter.ai/api/v1 · https://api.groq.com/openai/v1 · https://api.deepseek.com/v1", 11, TEXT2, false));
-            EditText base = new EditText(this); base.setHint("Base URL"); base.setText(cur == null ? "" : cur.optString("baseUrl")); base.setSingleLine(); base.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI); box.addView(base);
-            EditText key = new EditText(this); key.setHint(cur != null && cur.optBoolean("hasKey") ? "API key tersimpan — kosongkan untuk tetap" : "API key"); key.setSingleLine(); key.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD); box.addView(key);
-            TextView model = tv("Model: " + (cur == null || cur.optString("model").isEmpty() ? "— (ambil daftar dulu)" : cur.optString("model")), 13, TEXT, true); model.setPadding(0, dp(12), 0, dp(6)); box.addView(model);
-            Button pick = btn("Ambil daftar model dari provider", false); box.addView(pick);
-            final String[] chosen = { cur == null ? "" : cur.optString("model") };
-            AlertDialog d = new AlertDialog.Builder(this).setTitle("Provider AI").setView(box).setPositiveButton("Simpan", null).setNegativeButton("Batal", null).create();
-            pick.setOnClickListener(v -> {
-                pick.setEnabled(false);
-                final long t0 = System.currentTimeMillis(); final Runnable[] tick = new Runnable[1];
-                tick[0] = () -> { if (!pick.isEnabled()) { pick.setText("⏳ Menghubungi server… " + (System.currentTimeMillis() - t0) / 1000 + " dtk (Apps Script bisa 5–40 dtk)"); pick.postDelayed(tick[0], 1000); } }; tick[0].run();
-                JSONObject p = new JSONObject(); try { p.put("baseUrl", base.getText().toString().trim()); if (!key.getText().toString().trim().isEmpty()) p.put("apiKey", key.getText().toString().trim()); p.put("withModels", true); } catch (Exception ignored) {}
-                Api.call(url(), token(), "admin_ai_set", p, (r2, e2) -> {
-                    pick.setEnabled(true); pick.setText("Ambil daftar model dari provider");
-                    if (e2 != null) { toast(e2); return; }
-                    if (r2.has("modelsError")) { toast("Provider: " + r2.optString("modelsError")); return; }
-                    JSONArray arr = r2.optJSONArray("models"); if (arr == null || arr.length() == 0) { toast("Provider tidak mengembalikan daftar model"); return; }
-                    List<String> ids = new ArrayList<>(); for (int i = 0; i < arr.length(); i++) ids.add(arr.optString(i));
-                    EditText filter = new EditText(this); filter.setHint("Cari model…"); filter.setSingleLine();
-                    LinearLayout wrap = new LinearLayout(this); wrap.setOrientation(LinearLayout.VERTICAL); wrap.setPadding(dp(16), 0, dp(16), 0); wrap.addView(filter);
-                    android.widget.ListView lv = new android.widget.ListView(this); android.widget.ArrayAdapter<String> ad = new android.widget.ArrayAdapter<>(this, android.R.layout.simple_list_item_1, new ArrayList<>(ids)); lv.setAdapter(ad); wrap.addView(lv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(360)));
-                    filter.addTextChangedListener(new android.text.TextWatcher() { public void beforeTextChanged(CharSequence s, int a, int b2, int c) {} public void afterTextChanged(android.text.Editable s) {} public void onTextChanged(CharSequence s, int a, int b2, int c) { ad.getFilter().filter(s); } });
-                    AlertDialog md = new AlertDialog.Builder(this).setTitle(ids.size() + " model tersedia").setView(wrap).setNegativeButton("Batal", null).create();
-                    lv.setOnItemClickListener((av, view, pos, id) -> { chosen[0] = ad.getItem(pos); model.setText("Model: " + chosen[0]); md.dismiss(); });
-                    md.show();
-                });
-            });
-            d.setOnShowListener(x -> d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                JSONObject p = new JSONObject(); try { p.put("baseUrl", base.getText().toString().trim()); p.put("model", chosen[0]); if (!key.getText().toString().trim().isEmpty()) p.put("apiKey", key.getText().toString().trim()); } catch (Exception ignored) {}
-                Api.call(url(), token(), "admin_ai_set", p, (r, e) -> { if (e != null) toast(e); else { toast("Provider tersimpan"); loadConfig(); d.dismiss(); } });
-            }));
-            d.show();
+        LinearLayout box = new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL); box.setPadding(dp(20), dp(8), dp(20), 0);
+        box.addView(tv("Agent lokal: HP ini memanggil provider langsung (tanpa Apps Script). Contoh base URL: https://api.openai.com/v1 · https://openrouter.ai/api/v1 · https://api.groq.com/openai/v1", 11, TEXT2, false));
+        EditText base = new EditText(this); base.setHint("Base URL"); base.setText(agent.baseUrl()); base.setSingleLine(); base.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI); box.addView(base);
+        EditText key = new EditText(this); key.setHint(agent.apiKey().isEmpty() ? "API key" : "API key tersimpan — kosongkan untuk tetap"); key.setSingleLine(); key.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD); box.addView(key);
+        TextView model = tv("Model: " + (agent.model().isEmpty() ? "— (ambil daftar dulu)" : agent.model()), 13, TEXT, true); model.setPadding(0, dp(12), 0, dp(6)); box.addView(model);
+        Button pick = btn("Ambil daftar model dari provider", false); box.addView(pick);
+        final String[] chosen = { agent.model() };
+        Runnable saveCreds = () -> { SharedPreferences.Editor e = prefs.edit().putString("ai.baseUrl", base.getText().toString().trim()); if (!key.getText().toString().trim().isEmpty()) e.putString("ai.apiKey", key.getText().toString().trim()); e.apply(); };
+        AlertDialog d = new AlertDialog.Builder(this).setTitle("Provider AI (lokal)").setView(box).setPositiveButton("Simpan", null).setNegativeButton("Batal", null).create();
+        pick.setOnClickListener(v -> {
+            saveCreds.run(); if (!agent.configured()) { toast("Isi Base URL dan API key dulu"); return; }
+            pick.setEnabled(false); final long t0 = System.currentTimeMillis(); final Runnable[] tick = new Runnable[1];
+            tick[0] = () -> { if (!pick.isEnabled()) { pick.setText("⏳ Menghubungi provider… " + (System.currentTimeMillis() - t0) / 1000 + " dtk"); pick.postDelayed(tick[0], 500); } }; tick[0].run();
+            agent.listModels(arr -> {
+                pick.setEnabled(true); pick.setText("Ambil daftar model dari provider");
+                if (arr.length() == 0) { toast("Provider tidak mengembalikan daftar model"); return; }
+                List<String> ids = new ArrayList<>(); for (int i = 0; i < arr.length(); i++) ids.add(arr.optString(i));
+                EditText filter = new EditText(this); filter.setHint("Cari model…"); filter.setSingleLine();
+                LinearLayout wrap = new LinearLayout(this); wrap.setOrientation(LinearLayout.VERTICAL); wrap.setPadding(dp(16), 0, dp(16), 0); wrap.addView(filter);
+                android.widget.ListView lv = new android.widget.ListView(this); android.widget.ArrayAdapter<String> ad = new android.widget.ArrayAdapter<>(this, android.R.layout.simple_list_item_1, new ArrayList<>(ids)); lv.setAdapter(ad); wrap.addView(lv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(360)));
+                filter.addTextChangedListener(new android.text.TextWatcher() { public void beforeTextChanged(CharSequence s, int a, int b2, int c) {} public void afterTextChanged(android.text.Editable s) {} public void onTextChanged(CharSequence s, int a, int b2, int c) { ad.getFilter().filter(s); } });
+                AlertDialog md = new AlertDialog.Builder(this).setTitle(ids.size() + " model tersedia (" + (System.currentTimeMillis() - t0) / 1000 + " dtk)").setView(wrap).setNegativeButton("Batal", null).create();
+                lv.setOnItemClickListener((av, view, pos, id) -> { chosen[0] = ad.getItem(pos); model.setText("Model: " + chosen[0]); md.dismiss(); });
+                md.show();
+            }, err -> { pick.setEnabled(true); pick.setText("Ambil daftar model dari provider"); toast(err); });
         });
+        d.setOnShowListener(x -> d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> { saveCreds.run(); prefs.edit().putString("ai.model", chosen[0]).apply(); loadConfig(); d.dismiss(); toast("Provider tersimpan (lokal di HP ini)"); }));
+        d.show();
     }
 
     // ---- chat ----
     void sendMessage() {
         String text = input.getText().toString().trim(); if (text.isEmpty()) return;
+        if (!agent.configured() || agent.model().isEmpty()) { toast("Atur provider & model dulu (⚙)"); showConfig(); return; }
         try { messages.put(new JSONObject().put("role", "user").put("content", text)); } catch (Exception ignored) {}
         input.setText(""); renderChat(); send.setEnabled(false); busy = true; status.setTextColor(TEXT2);
-        final long t0 = System.currentTimeMillis(); final Runnable[] tick = new Runnable[1];
-        tick[0] = () -> { if (busy) { long sec = (System.currentTimeMillis() - t0) / 1000; status.setText((sec < 8 ? "⏳ Menghubungi server Apps Script…" : sec < 40 ? "🤔 Agent berpikir / membaca skrip…" : sec < 120 ? "✍️ Agent menulis (skrip besar bisa 1–3 menit)…" : "⏳ Masih bekerja…") + " " + sec + " dtk"); status.postDelayed(tick[0], 1000); } }; tick[0].run();
-        // Keep the transcript bounded: tool payloads are large, so only the last 14 messages travel with each turn.
+        final long t0 = System.currentTimeMillis(); final String[] stage = { "⏳ Menghubungi provider…" }; final Runnable[] tick = new Runnable[1];
+        tick[0] = () -> { if (busy) { status.setText(stage[0] + " " + (System.currentTimeMillis() - t0) / 1000 + " dtk"); status.postDelayed(tick[0], 500); } }; tick[0].run();
+        // Bounded transcript: tool payloads are large, only the last 14 messages travel with each turn.
         JSONArray window = new JSONArray(); int start = Math.max(0, messages.length() - 14); for (int i = start; i < messages.length(); i++) window.put(messages.opt(i));
-        JSONObject p = new JSONObject(); try { p.put("messages", window); if (pendingContext != null) { p.put("context", pendingContext); pendingContext = null; } } catch (Exception ignored) {}
-        Api.call(url(), token(), "admin_agent", p, (r, err) -> {
+        String ctx = pendingContext; pendingContext = null;
+        agent.chat(window, ctx, st -> runOnUiThread(() -> stage[0] = st), (msgs, events, err) -> {
             send.setEnabled(true); busy = false;
-            if (err != null) { status.setText(err); status.setTextColor(ORANGE); try { messages.put(new JSONObject().put("role", "assistant").put("content", "⚠ " + err)); } catch (Exception ignored) {} renderChat(); if (err.contains("ai_not_configured") || err.contains("belum")) showConfig(); return; }
+            if (err != null) { status.setTextColor(ORANGE); status.setText(err); try { messages.put(new JSONObject().put("role", "assistant").put("content", "⚠ " + err)); } catch (Exception ignored) {} renderChat(); return; }
             status.setTextColor(TEXT2); status.setText("Selesai dalam " + (System.currentTimeMillis() - t0) / 1000 + " dtk");
-            JSONArray msgs = r.optJSONArray("messages"); if (msgs != null) { JSONArray merged = new JSONArray(); for (int i = 0; i < start; i++) merged.put(messages.opt(i)); for (int i = 0; i < msgs.length(); i++) merged.put(msgs.opt(i)); messages = merged; }
-            JSONArray ev = r.optJSONArray("events"); boolean draft = false; for (int i = 0; ev != null && i < ev.length(); i++) if (ev.optJSONObject(i) != null && ev.optJSONObject(i).has("draft")) draft = true;
+            JSONArray merged = new JSONArray(); for (int i = 0; i < start; i++) merged.put(messages.opt(i)); for (int i = 0; i < msgs.length(); i++) merged.put(msgs.opt(i)); messages = merged;
+            boolean draft = false; for (int i = 0; i < events.length(); i++) if (events.optJSONObject(i) != null && events.optJSONObject(i).optBoolean("draft")) draft = true;
             prefs.edit().putString("agentMessages", messages.toString()).apply(); renderChat();
-            if (draft) { toast("Draft baru dibuat — periksa tab Draft lalu Terapkan."); loadDrafts(); }
+            if (draft) { toast("Draft baru dibuat — periksa tab Draft."); loadDrafts(); }
         });
     }
     void renderChat() {
@@ -226,59 +221,60 @@ public class AgentActivity extends AppCompatActivity {
         chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
     }
 
-    // ---- drafts ----
+    // ---- drafts (local files/drafts; publish uploads to Drive via the server when a token is set) ----
     void loadDrafts() {
-        Api.call(url(), token(), "admin_drafts", null, (r, err) -> {
-            drafts.removeAllViews();
-            if (err != null) { drafts.addView(tv(err, 12, ORANGE, false)); return; }
-            JSONArray arr = r.optJSONArray("drafts"); if (arr == null || arr.length() == 0) { TextView e = tv("Belum ada draft. Minta agent membuat perbaikan di tab Chat.", 13, TEXT2, false); e.setPadding(dp(8), dp(16), dp(8), 0); drafts.addView(e); return; }
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject d = arr.optJSONObject(i); if (d == null) continue; final String fid = d.optString("fileId"), name = d.optString("name");
-                LinearLayout c = card(); c.setPadding(dp(14), dp(12), dp(14), dp(12));
-                TextView n = tv(name, 15, TEXT, true); n.setTypeface(Typeface.MONOSPACE, Typeface.BOLD); c.addView(n);
-                c.addView(tv((d.optString("note").isEmpty() ? "" : d.optString("note") + "\n") + (d.optLong("size") / 1024) + " KB · " + DateUtils.getRelativeTimeSpanString(d.optLong("updated"), System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS), 11, TEXT2, false));
-                LinearLayout acts = row(); acts.setPadding(0, dp(10), 0, 0);
-                Button diff = btn("Lihat perubahan", false); diff.setOnClickListener(v -> showDiff(fid, name));
-                Button pub = btn("✓ Terapkan", true); pub.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Terapkan " + name + "?").setMessage("File dipindah ke folder update. Semua pengguna mendapatkannya saat menekan “Cek & update”.").setPositiveButton("Terapkan", (dd, w) -> act("admin_draft_publish", fid, name + " diterapkan ✓")).setNegativeButton("Batal", null).show());
-                Button del = btn("Buang", false); del.setOnClickListener(v -> act("admin_draft_delete", fid, "Draft dibuang"));
-                LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)); bl.rightMargin = dp(6);
-                acts.addView(diff, bl); acts.addView(new View(this), weight()); acts.addView(del, bl); acts.addView(pub, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)));
-                c.addView(acts); LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT); lp.bottomMargin = dp(8); drafts.addView(c, lp);
-            }
-        });
+        drafts.removeAllViews();
+        java.io.File dir = new java.io.File(getFilesDir(), "drafts"); java.io.File[] files = dir.listFiles();
+        if (files == null || files.length == 0) { TextView e = tv("Belum ada draft. Minta agent membuat perbaikan di tab Chat.", 13, TEXT2, false); e.setPadding(dp(8), dp(16), dp(8), 0); drafts.addView(e); return; }
+        java.util.Arrays.sort(files, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+        for (java.io.File f : files) {
+            final String name = f.getName(); final String id = prefs.getString("draft." + name + ".id", "");
+            LinearLayout c = card(); c.setPadding(dp(14), dp(12), dp(14), dp(12));
+            TextView n = tv(name, 15, TEXT, true); n.setTypeface(Typeface.MONOSPACE, Typeface.BOLD); c.addView(n);
+            c.addView(tv((prefs.getString("draft." + name + ".note", "").isEmpty() ? "" : prefs.getString("draft." + name + ".note", "") + "\n") + (f.length() / 1024) + " KB · " + DateUtils.getRelativeTimeSpanString(f.lastModified(), System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS), 11, TEXT2, false));
+            LinearLayout acts = row(); acts.setPadding(0, dp(10), 0, 0);
+            Button diff = btn("Lihat perubahan", false); diff.setOnClickListener(v -> showDiff(f, id));
+            Button apply = btn("Coba di HP ini", false); apply.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("Coba " + name + "?").setMessage("Draft dipasang sebagai versi OTA lokal di HP ini saja (tidak dipublish). Halaman Dola dimuat ulang. Tekan lama baris komponen di dashboard untuk kembali ke bawaan.").setPositiveButton("Coba", (dd, w) -> { try { byte[] data = java.nio.file.Files.readAllBytes(f.toPath()); try (java.io.FileOutputStream fo = new java.io.FileOutputStream(MainActivity.instance.updates.fileFor(id))) { fo.write(data); } String ver = name.replaceAll("^.*-(v[0-9.]+)\\.[a-z]+$", "$1"); prefs.getClass(); MainActivity.instance.prefs.edit().putString("upd." + id + ".ver", ver).putString("upd." + id + ".name", name).putLong("upd." + id + ".at", System.currentTimeMillis()).apply(); MainActivity.instance.web.reload(); toast(name + " dipasang lokal ✓"); } catch (Exception e) { toast("Gagal: " + e.getMessage()); } }).setNegativeButton("Batal", null).show());
+            Button pub = btn("✓ Publish", true); pub.setOnClickListener(v -> publishDraft(f, id));
+            Button del = btn("Buang", false); del.setOnClickListener(v -> { f.delete(); loadDrafts(); });
+            LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)); bl.rightMargin = dp(6);
+            acts.addView(diff, bl); acts.addView(apply, bl); acts.addView(new View(this), weight()); acts.addView(del, bl); acts.addView(pub, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)));
+            c.addView(acts); LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT); lp.bottomMargin = dp(8); drafts.addView(c, lp);
+        }
     }
-    void act(String action, String fid, String okMsg) { JSONObject p = new JSONObject(); try { p.put("fileId", fid); } catch (Exception ignored) {} Api.call(url(), token(), action, p, (r, err) -> { toast(err != null ? err : okMsg); loadDrafts(); }); }
-    void showDiff(String fid, String name) {
-        status.setText("Mengambil draft…");
-        JSONObject p = new JSONObject(); try { p.put("fileId", fid); } catch (Exception ignored) {}
-        Api.call(url(), token(), "admin_draft_get", p, (r, err) -> {
-            status.setText(""); if (err != null) { toast(err); return; }
-            JSONObject cur = r.optJSONObject("current");
-            String a = cur == null ? "" : cur.optString("content"), b2 = r.optString("content");
-            android.text.SpannableStringBuilder sb = Diff.render(a, b2);
-            TextView t = new TextView(this); t.setText(sb); t.setTextSize(11); t.setTypeface(Typeface.MONOSPACE); t.setTextColor(TEXT); t.setPadding(dp(14), dp(8), dp(14), dp(8)); t.setTextIsSelectable(true); t.setHorizontallyScrolling(true);
+    void showDiff(java.io.File f, String id) {
+        try {
+            String a = MainActivity.instance.updates.text(id), b2 = new String(java.nio.file.Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+            TextView t = new TextView(this); t.setText(Diff.render(a, b2)); t.setTextSize(11); t.setTypeface(Typeface.MONOSPACE); t.setTextColor(TEXT); t.setPadding(dp(14), dp(8), dp(14), dp(8)); t.setTextIsSelectable(true); t.setHorizontallyScrolling(true);
             HorizontalScrollView hs = new HorizontalScrollView(this); hs.addView(t); ScrollView sv = new ScrollView(this); sv.addView(hs);
-            new AlertDialog.Builder(this).setTitle((cur == null ? "baru" : cur.optString("version")) + " → " + name).setView(sv).setPositiveButton("Tutup", null).show();
-        });
+            new AlertDialog.Builder(this).setTitle(MainActivity.instance.updates.version(id) + " → " + f.getName()).setView(sv).setPositiveButton("Tutup", null).show();
+        } catch (Exception e) { toast("Gagal membaca draft: " + e.getMessage()); }
+    }
+    /** Publish = upload the draft to the Drive update folder through the server (needs admin token). */
+    void publishDraft(java.io.File f, String id) {
+        if (token().isEmpty()) { askToken(); return; }
+        new AlertDialog.Builder(this).setTitle("Publish " + f.getName() + "?").setMessage("File diunggah ke folder update Drive lewat server. Semua pengguna mendapatkannya saat “Cek & update”.").setPositiveButton("Publish", (dd, w) -> {
+            status.setText("Mengunggah…");
+            try {
+                JSONObject p = new JSONObject().put("id", id).put("content", new String(java.nio.file.Files.readAllBytes(f.toPath()), java.nio.charset.StandardCharsets.UTF_8)).put("note", prefs.getString("draft." + f.getName() + ".note", "")).put("publish", true);
+                Api.call(url(), token(), "admin_draft_upload", p, (r, err) -> { status.setText(err != null ? err : "Dipublish: " + r.optString("name")); if (err != null) toast(err); else { f.delete(); loadDrafts(); } });
+            } catch (Exception e) { toast("Gagal: " + e.getMessage()); }
+        }).setNegativeButton("Batal", null).show();
     }
 
-    // ---- reports ----
+    // ---- reports: local recent events from this device (no server needed) ----
     void loadReports() {
-        Api.call(url(), token(), "admin_reports", null, (r, err) -> {
-            reports.removeAllViews();
-            if (err != null) { reports.addView(tv(err, 12, ORANGE, false)); return; }
-            JSONArray arr = r.optJSONArray("reports"); if (arr == null || arr.length() == 0) { TextView e = tv("Belum ada laporan. Aplikasi pengguna mengirim laporan otomatis saat deteksi/download/skrip bermasalah.", 13, TEXT2, false); e.setPadding(dp(8), dp(16), dp(8), 0); reports.addView(e); return; }
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject x = arr.optJSONObject(i); if (x == null) continue;
-                LinearLayout c = card(); c.setPadding(dp(12), dp(10), dp(12), dp(10));
-                LinearLayout top = row(); TextView comp = tv(x.optString("component") + " · " + x.optString("event"), 13, x.optString("event").contains("fail") || x.optString("event").contains("error") || x.optString("event").contains("no_") ? ORANGE : TEXT, true); top.addView(comp, weight());
-                long ts = 0; try { ts = java.time.Instant.parse(x.optString("time")).toEpochMilli(); } catch (Exception ignored) {}
-                top.addView(tv(ts > 0 ? DateUtils.getRelativeTimeSpanString(ts, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString() : "", 10, TEXT2, false)); c.addView(top);
-                c.addView(tv(x.optString("device") + " · " + x.optString("app"), 10, TEXT2, false));
-                if (!x.optString("detail").isEmpty()) { TextView dt = tv(x.optString("detail"), 11, TEXT2, false); dt.setTypeface(Typeface.MONOSPACE); dt.setMaxLines(6); dt.setEllipsize(android.text.TextUtils.TruncateAt.END); dt.setPadding(0, dp(4), 0, 0); dt.setOnClickListener(v -> dt.setMaxLines(dt.getMaxLines() > 6 ? 6 : 200)); c.addView(dt); }
-                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT); lp.bottomMargin = dp(6); reports.addView(c, lp);
-            }
-        });
+        reports.removeAllViews();
+        java.util.List<JSONObject> list = new java.util.ArrayList<>(); MainActivity h2 = MainActivity.instance;
+        if (h2 != null) synchronized (h2.recentEvents) { list.addAll(h2.recentEvents); }
+        if (list.isEmpty()) { TextView e = tv("Belum ada kejadian di sesi ini. Kejadian muncul otomatis saat deteksi/download/skrip bermasalah, atau saat request video tidak 30 detik.", 13, TEXT2, false); e.setPadding(dp(8), dp(16), dp(8), 0); reports.addView(e); return; }
+        for (JSONObject x : list) {
+            LinearLayout c = card(); c.setPadding(dp(12), dp(10), dp(12), dp(10));
+            LinearLayout top = row(); String ev = x.optString("event"); TextView comp = tv(x.optString("component") + " · " + ev, 13, ev.contains("fail") || ev.contains("error") || ev.contains("no_") || ev.contains("not_") || ev.contains("short") ? ORANGE : TEXT, true); top.addView(comp, weight());
+            top.addView(tv(DateUtils.getRelativeTimeSpanString(x.optLong("t"), System.currentTimeMillis(), DateUtils.SECOND_IN_MILLIS).toString(), 10, TEXT2, false)); c.addView(top);
+            if (!x.optString("detail").isEmpty()) { TextView dt = tv(x.optString("detail"), 11, TEXT2, false); dt.setTypeface(Typeface.MONOSPACE); dt.setMaxLines(6); dt.setEllipsize(android.text.TextUtils.TruncateAt.END); dt.setPadding(0, dp(4), 0, 0); dt.setOnClickListener(v -> dt.setMaxLines(dt.getMaxLines() > 6 ? 6 : 200)); c.addView(dt); }
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT); lp.bottomMargin = dp(6); reports.addView(c, lp);
+        }
     }
 
     void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_LONG).show(); }

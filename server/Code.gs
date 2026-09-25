@@ -8,7 +8,7 @@
  * Deploy: Deploy → New deployment → Web app → Execute as: Me · Who has access: Anyone.
  * Jalankan setupSheet() sekali dari editor, lalu generateKeys(...) untuk membuat key.
  */
-const CODE_VERSION = 7; // dikembalikan oleh action=version untuk memastikan kode yang ter-deploy lengkap
+const CODE_VERSION = 8; // dikembalikan oleh action=version untuk memastikan kode yang ter-deploy lengkap
 
 /** ► JALANKAN INI SEKALI setelah menempel: pilih fungsi "setup" → Run. Menyetujui izin Sheet + Drive,
  *  membuat sheet Licenses, membuat/menampilkan token admin, dan memastikan seluruh file tertempel utuh. */
@@ -381,6 +381,7 @@ function agentAdmin(action, req) {
     if (action === 'admin_drafts') return { ok: true, drafts: listDrafts() };
     if (action === 'admin_draft_get') { const f = DriveApp.getFileById(String(req.fileId)); const id = ASSET_IDS.find(k => f.getName().startsWith(ASSET_FILES[k][0])); const cur = id ? latestAsset(id) : null; return { ok: true, name: f.getName(), content: f.getBlob().getDataAsString('UTF-8'), note: f.getDescription() || '', current: cur ? { version: cur.version, filename: cur.filename, content: cur.content } : null }; }
     if (action === 'admin_draft_publish') return publishDraft(String(req.fileId));
+    if (action === 'admin_draft_upload') { const d = writeDraft(String(req.id), String(req.content || ''), req.note); if (req.publish) return Object.assign(publishDraft(d.fileId), { version: d.version }); return d; }
     if (action === 'admin_draft_delete') { DriveApp.getFileById(String(req.fileId)).setTrashed(true); return { ok: true }; }
     return { ok: false, reason: 'bad_request' };
   } catch (e) { const msg = String(e && e.message || e); return { ok: false, reason: msg === 'ai_not_configured' ? 'ai_not_configured' : 'agent_error', error: msg }; }

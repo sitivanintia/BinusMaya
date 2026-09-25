@@ -172,6 +172,14 @@
     return found.size;
   };
 
+  // ---- developer network log: Dola API request/response summaries (bodies truncated, kept in-page only) ----
+  const netlog = []; const NET_MAX = 60;
+  const netPush = e => { netlog.unshift(e); if (netlog.length > NET_MAX) netlog.pop(); };
+  const brief = (t, n) => { if (typeof t !== 'string') return ''; return t.length > n ? t.slice(0, n) + '…[' + t.length + ' chars]' : t; };
+  window.__idreamsNetlog = (n = 30) => netlog.slice(0, n);
+  window.__idreamsNetEntry = (id) => netlog.find(e => e.id === id) || null;
+  window.__idreamsClearNetlog = () => { netlog.length = 0; };
+  let netSeq = 0;
   // ---- read-only taps ----
   let lastVideoRequest = null;
   const auditRequest = (u, init) => {
@@ -184,16 +192,24 @@
     } catch {}
   };
   window.fetch = async function (input, init) {
-    try { auditRequest(typeof input === 'string' ? input : input?.url || '', init); } catch {}
-    const res = await ofetch.call(this, input, init);
-    try { const u = typeof input === 'string' ? input : input?.url || ''; if (isDola(u) && shouldSniff(u, res)) res.clone().text().then(sniffText).catch(() => {}); } catch {}
+    const u0 = typeof input === 'string' ? input : input?.url || '';
+    try { auditRequest(u0, init); } catch {}
+    const t0 = Date.now(); const entry = isDola(u0) && !/\.(mp4|webm|jpg|png|gif|webp|woff2?|css|js)(\?|$)/i.test(u0) ? { id: ++netSeq, t: t0, kind: 'fetch', method: (init && init.method) || 'GET', url: u0.slice(0, 300), reqBody: brief(init && typeof init.body === 'string' ? init.body : '', 1500), full: init && typeof init.body === 'string' ? init.body.slice(0, 60000) : '' } : null;
+    let res;
+    try { res = await ofetch.call(this, input, init); } catch (e) { if (entry) { entry.status = 'ERR'; entry.error = String(e && e.message || e); entry.ms = Date.now() - t0; netPush(entry); } throw e; }
+    if (entry) { entry.status = res.status; entry.ms = Date.now() - t0; entry.ct = res.headers.get('content-type') || ''; netPush(entry); if (/json|text|event-stream/i.test(entry.ct)) res.clone().text().then(t => { entry.resBody = brief(t, 2000); entry.fullRes = t.slice(0, 120000); }).catch(() => {}); }
+    try { if (isDola(u0) && shouldSniff(u0, res)) res.clone().text().then(sniffText).catch(() => {}); } catch {}
     return res;
   };
   const oo = XMLHttpRequest.prototype.open, os = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (m, u, ...r) { this.__idu = String(u); return oo.call(this, m, u, ...r); };
   XMLHttpRequest.prototype.send = function (b) {
     try { if (typeof b === 'string') auditRequest(this.__idu || '', { body: b }); } catch {}
-    try { this.addEventListener('load', () => { try { const u = this.__idu || ''; if (isDola(u) && !u.includes('/chat/completion') && typeof this.responseText === 'string') sniffText(this.responseText); } catch {} }); } catch {}
+    const u = this.__idu || ''; const t0 = Date.now();
+    const entry = isDola(u) ? { id: ++netSeq, t: t0, kind: 'xhr', method: 'XHR', url: u.slice(0, 300), reqBody: brief(typeof b === 'string' ? b : '', 1500), full: typeof b === 'string' ? b.slice(0, 60000) : '' } : null;
+    if (entry) netPush(entry);
+    try { this.addEventListener('loadend', () => { if (entry) { entry.status = this.status; entry.ms = Date.now() - t0; try { if (typeof this.responseText === 'string') { entry.resBody = brief(this.responseText, 2000); entry.fullRes = this.responseText.slice(0, 120000); } } catch {} } }); } catch {}
+    try { this.addEventListener('load', () => { try { if (isDola(u) && !u.includes('/chat/completion') && typeof this.responseText === 'string') sniffText(this.responseText); } catch {} }); } catch {}
     return os.call(this, b);
   };
 })();
