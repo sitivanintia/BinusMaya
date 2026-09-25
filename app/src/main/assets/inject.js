@@ -20,6 +20,8 @@
     if (found.has(key)) return;
     v.name = v.name || ('dola_' + String(found.size + 1).padStart(2, '0') + (v.vid ? '_' + String(v.vid).slice(-6) : ''));
     found.set(key, v);
+    // Duration audit: the 30s directive is on but the CDN file is short → Dola clamped/split the generation.
+    try { const en = window.__whempySingleClip, ap = window.__sesiAutoPrompt; if (v.duration > 0 && v.duration < 25 && ((en && en.cfg.enabled) || (ap && ap.status().enabled))) report('short_video_generated', 'durasi=' + v.duration + 's ' + v.width + 'x' + v.height + ' def=' + v.definition + ' bytes=' + v.expectedBytes + ' lastRequest=' + JSON.stringify(lastVideoRequest)); } catch {}
     try { window.IDBridge?.onVideo(JSON.stringify(v)); } catch {}
   };
 
@@ -171,7 +173,18 @@
   };
 
   // ---- read-only taps ----
+  let lastVideoRequest = null;
+  const auditRequest = (u, init) => {
+    try {
+      const body = init && typeof init.body === 'string' ? init.body : ''; if (!body || !/completion|chunk_stream|pre_handle/.test(u)) return;
+      if (!/duration|seedance|video/i.test(body)) return;
+      const grab = re => [...body.matchAll(re)].map(m => m[1]).slice(0, 6);
+      lastVideoRequest = { t: Date.now(), path: new URL(u, location.href).pathname, durations: grab(/\\*"duration\\*"\s*:\s*\\*"?(\d+)/g), counts: grab(/\\*"(?:video_count|generate_count|count|num|n)\\*"\s*:\s*(\d+)/g), models: grab(/\\*"(?:model|model_version|model_name)\\*"\s*:\s*\\*"([^"\\]{2,40})/g), directive: /system_directive/.test(body), enforcer: !!(window.__whempySingleClip && window.__whempySingleClip.cfg.enabled) };
+      if (lastVideoRequest.durations.length && lastVideoRequest.durations.some(d => Number(d) !== 30)) report('request_duration_not_30', JSON.stringify(lastVideoRequest));
+    } catch {}
+  };
   window.fetch = async function (input, init) {
+    try { auditRequest(typeof input === 'string' ? input : input?.url || '', init); } catch {}
     const res = await ofetch.call(this, input, init);
     try { const u = typeof input === 'string' ? input : input?.url || ''; if (isDola(u) && shouldSniff(u, res)) res.clone().text().then(sniffText).catch(() => {}); } catch {}
     return res;
@@ -179,6 +192,7 @@
   const oo = XMLHttpRequest.prototype.open, os = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (m, u, ...r) { this.__idu = String(u); return oo.call(this, m, u, ...r); };
   XMLHttpRequest.prototype.send = function (b) {
+    try { if (typeof b === 'string') auditRequest(this.__idu || '', { body: b }); } catch {}
     try { this.addEventListener('load', () => { try { const u = this.__idu || ''; if (isDola(u) && !u.includes('/chat/completion') && typeof this.responseText === 'string') sniffText(this.responseText); } catch {} }); } catch {}
     return os.call(this, b);
   };
