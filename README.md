@@ -35,7 +35,7 @@ APK yang memuat dola.com di WebView dengan dashboard unduhan. Request Dola tidak
 Dashboard → **Update sistem**: server membaca satu folder Google Drive (`action=updates`) dan memilih file berversi tertinggi per komponen dari nama file (`Introvert-Dreams-SKILL-v6.md`, `auto-prompt-v2.js`, `single-clip-enforcer-v2.js`, `inject-v2.js`); isi file dikirim server (`action=update_file`) sehingga folder boleh privat. Salinan OTA di `files/updates/` dipakai oleh `readAsset()` dan lampiran MD. Lihat `server/README.md`.
 
 ## Diagnostik & AI Agent (v1.11.0)
-APK/extension mengirim laporan anonim (`IDBridge.onReport` dari `inject.js`, download gagal, auto prompt not ready) ke `action=report` → sheet `Reports`. SESI Admin 1.1.0 punya **🤖 Agent** (provider OpenAI-compatible dengan model picker dari `/models`, tools read_asset/write_draft/publish, diff, diagnostik). Lihat `server/README.md`.
+Hanya dalam **mode developer** (tekan lama judul dashboard; default nonaktif) APK mengirim laporan anonim (`IDBridge.onReport` dari `inject.js`, download gagal, auto prompt not ready) ke `action=report` → sheet `Reports`. SESI Admin 1.1.0 punya **🤖 Agent** (provider OpenAI-compatible dengan model picker dari `/models`, tools read_asset/write_draft/publish, diff, diagnostik). Lihat `server/README.md`.
 
 ## SESI Admin (modul `admin/`)
 APK terpisah (`com.introvertdreams.sesiadmin`) untuk mengelola lisensi dari HP lewat endpoint `admin_*` di server (token admin di Script Properties). Lihat `server/README.md`.

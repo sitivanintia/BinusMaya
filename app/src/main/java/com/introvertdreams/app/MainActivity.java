@@ -147,7 +147,7 @@ public class MainActivity extends AppCompatActivity {
     /** Anonymous diagnostics for the developer agent (component/event/detail only; rate-limited, deduped per session). */
     final java.util.Set<String> reportedKeys = Collections.synchronizedSet(new java.util.HashSet<>());
     void report(String component, String event, String detail) {
-        if (license == null || license.serverUrl().isEmpty() || !prefs.getBoolean("diag", true)) return;
+        if (license == null || license.serverUrl().isEmpty() || !prefs.getBoolean("diag", false)) return; // developer mode only (long-press dashboard title)
         String key = component + "|" + event + "|" + (detail == null ? "" : detail.substring(0, Math.min(60, detail.length())));
         if (reportedKeys.size() > 40 || !reportedKeys.add(key)) return;
         new Thread(() -> {

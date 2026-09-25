@@ -37,7 +37,10 @@ public class DashboardSheet {
         LinearLayout hdr = row(a); 
         TextView title = tv(a, "SESI MINI", 20, TEXT, true); LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1); hdr.addView(title, lp);
         TextView pill = tv(a, "", 12, GREEN, true); hdr.addView(pill); root.addView(hdr);
-        TextView sub = tv(a, "Introvert Dreams · Dola companion", 12, TEXT2, false); root.addView(sub);
+        boolean dev = a.prefs.getBoolean("diag", false);
+        TextView sub = tv(a, "Introvert Dreams · Dola companion" + (dev ? " · DEV" : ""), 12, TEXT2, false); root.addView(sub);
+        // Hidden developer mode: only the developer's own device sends diagnostics to the agent.
+        title.setOnLongClickListener(v -> { boolean on = !a.prefs.getBoolean("diag", false); a.prefs.edit().putBoolean("diag", on).apply(); sub.setText("Introvert Dreams · Dola companion" + (on ? " · DEV" : "")); android.widget.Toast.makeText(a, on ? "Mode developer AKTIF: HP ini mengirim diagnostik ke agent" : "Mode developer nonaktif", android.widget.Toast.LENGTH_LONG).show(); return true; });
         boolean lic = a.isLicensed();
         pill.setText(lic ? "● Active" : "○ Belum aktif"); pill.setTextColor(lic ? GREEN : ORANGE);
 
