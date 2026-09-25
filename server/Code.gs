@@ -188,7 +188,7 @@ function listLicenses(sheet) {
 // Isi UPDATES_FOLDER dengan link/ID folder, atau Run setUpdatesFolder() setelah menempel link di dalamnya.
 // ---------------------------------------------------------------------------------------------
 const UPDATES_FOLDER = 'https://drive.google.com/drive/folders/1Ykim3c6gKPAf1SqOHRqCr239jYr1N0JT';
-function setUpdatesFolder() { const link = 'TEMPEL_LINK_FOLDER_DI_SINI'; PropertiesService.getScriptProperties().setProperty('UPDATES_FOLDER', link); Logger.log('Folder update disimpan: ' + folderId()); }
+function setUpdatesFolder() { const link = 'https://drive.google.com/drive/folders/1Ykim3c6gKPAf1SqOHRqCr239jYr1N0JT?usp=drive_link'; PropertiesService.getScriptProperties().setProperty('UPDATES_FOLDER', link); Logger.log('Folder update disimpan: ' + folderId()); }
 function folderId() {
   const raw = PropertiesService.getScriptProperties().getProperty('UPDATES_FOLDER') || UPDATES_FOLDER;
   const m = String(raw || '').match(/folders\/([\w-]+)/) || String(raw || '').match(/[?&]id=([\w-]+)/) || String(raw || '').match(/^([\w-]{20,})$/);
